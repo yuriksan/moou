@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.DS_Store
+pgdata/
+drizzle/meta/
+*.tsbuildinfo
+.vite/
+.vscode/

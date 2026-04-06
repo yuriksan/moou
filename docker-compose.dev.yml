@@ -1,0 +1,12 @@
+# Development override — use: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  app:
+    build:
+      target: development
+    volumes:
+      - ./api/src:/app/api/src
+      - ./shared/src:/app/shared/src
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
+      EXTERNAL_PROVIDER: ${EXTERNAL_PROVIDER:-valueedge}

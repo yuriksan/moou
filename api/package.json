@@ -1,0 +1,44 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.39.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.0.0",
+    "filtrex": "^3.1.0",
+    "iron-session": "^8.0.4",
+    "microdiff": "^1.4.0",
+    "node-cron": "^3.0.0",
+    "octokit": "^5.0.5",
+    "pg": "^8.13.0",
+    "shared": "*",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/supertest": "^7.2.0",
+    "drizzle-kit": "^0.31.0",
+    "supertest": "^7.2.2",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.2"
+  }
+}

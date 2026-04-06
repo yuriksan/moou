@@ -1,0 +1,2355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>moou — outcome prioritisation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0: #f8f8f6;
+    --bg-1: #ffffff;
+    --bg-2: #f2f1ee;
+    --bg-3: #e8e7e3;
+    --bg-hover: #f0efeb;
+    --border: #dddcd8;
+    --border-subtle: #ebeae6;
+    --text-0: #1a1a1a;
+    --text-1: #4a4a46;
+    --text-2: #7a7a74;
+    --text-3: #a8a8a0;
+    --accent: #c07a1a;
+    --accent-dim: #c07a1a12;
+    --accent-mid: #c07a1a25;
+    --teal: #1a8a7a;
+    --teal-dim: #1a8a7a10;
+    --red: #c43c3c;
+    --red-dim: #c43c3c10;
+    --purple: #7a5ac8;
+    --purple-dim: #7a5ac810;
+    --blue: #2a7ac8;
+    --blue-dim: #2a7ac810;
+    --green: #3a8a4a;
+    --green-dim: #3a8a4a10;
+    --radius: 8px;
+    --radius-sm: 5px;
+    --radius-lg: 12px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.06);
+    --transition: 180ms ease;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg-0);
+    color: var(--text-0);
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ─── LAYOUT ─── */
+  .app {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 1fr;
+    height: 100vh;
+  }
+
+  /* ─── TOP BAR ─── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    gap: 32px;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    color: var(--text-0);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .nav-tabs {
+    display: flex;
+    gap: 4px;
+    height: 100%;
+    align-items: stretch;
+  }
+  .nav-tab {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition);
+    user-select: none;
+  }
+  .nav-tab:hover { color: var(--text-1); }
+  .nav-tab.active {
+    color: var(--text-0);
+    border-bottom-color: var(--accent);
+  }
+  .nav-tab .count {
+    margin-left: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    background: var(--bg-3);
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--teal));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #fff;
+  }
+  .btn-new {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .btn-new:hover {
+    background: var(--accent-mid);
+  }
+
+  /* ─── MAIN AREA ─── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr;
+    overflow: hidden;
+    position: relative;
+  }
+  .main.has-detail {
+    grid-template-columns: 1fr 480px;
+  }
+
+  /* ─── LIST VIEW ─── */
+  .list-view {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── TAG FILTER BAR ─── */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    padding: 12px 24px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-1);
+    flex-wrap: wrap;
+    min-height: 48px;
+  }
+  .filter-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-right: 4px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    border: 1px solid transparent;
+    user-select: none;
+  }
+  .tag:hover { opacity: 0.85; }
+  .tag.filter-active {
+    border-color: var(--text-0);
+    box-shadow: 0 0 0 1px var(--text-0);
+  }
+  .tag-emoji { font-size: 12px; }
+
+  .filter-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+
+  .status-filter {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--bg-3);
+    color: var(--text-2);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .status-filter:hover { color: var(--text-1); border-color: var(--text-2); }
+  .status-filter.active { color: var(--text-0); border-color: var(--text-0); background: var(--bg-hover); }
+
+  /* ─── LIST HEADER ─── */
+  .list-header {
+    display: grid;
+    padding: 8px 24px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-0);
+  }
+  .list-header.outcomes-header {
+    grid-template-columns: 48px 1fr 100px 180px 100px 80px;
+    gap: 12px;
+  }
+  .list-header.motivations-header {
+    grid-template-columns: 1fr 120px 100px 180px 100px 80px;
+    gap: 12px;
+  }
+  .list-header span:last-child,
+  .list-header span:nth-child(3) { text-align: right; }
+
+  /* ─── LIST BODY ─── */
+  .list-body {
+    flex: 1;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+  .list-body::-webkit-scrollbar { width: 6px; }
+  .list-body::-webkit-scrollbar-track { background: transparent; }
+  .list-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ─── OUTCOME ROW ─── */
+  .outcome-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 100px 180px 100px 80px;
+    gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: background var(--transition);
+    align-items: center;
+  }
+  .outcome-row:hover { background: var(--bg-hover); }
+  .outcome-row.selected { background: var(--bg-2); border-left: 2px solid var(--accent); padding-left: 22px; }
+
+  .rank {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-3);
+  }
+  .rank-1 { color: var(--accent); }
+  .rank-2 { color: var(--text-1); }
+  .rank-3 { color: var(--text-2); }
+
+  .outcome-info { min-width: 0; }
+  .outcome-title {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-0);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .outcome-meta {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .score {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    text-align: right;
+  }
+  .score-high { color: var(--accent); }
+  .score-mid { color: var(--teal); }
+  .score-low { color: var(--text-2); }
+
+  .score-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .score-bar {
+    width: 60px;
+    height: 4px;
+    background: var(--bg-3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 600ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .motivation-pills {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .motivation-pill {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .pill-customer { background: var(--blue-dim); color: var(--blue); }
+  .pill-compliance { background: var(--purple-dim); color: var(--purple); }
+  .pill-techdebt { background: var(--red-dim); color: var(--red); }
+  .pill-mandate { background: var(--accent-dim); color: var(--accent); }
+  .pill-competitive { background: var(--green-dim); color: var(--green); }
+
+  .date-cell {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .date-urgent { color: var(--red); }
+  .date-soon { color: var(--accent); }
+
+  .status-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+    width: fit-content;
+  }
+  .status-active { background: var(--green-dim); color: var(--green); }
+  .status-draft { background: var(--bg-3); color: var(--text-2); }
+  .status-approved { background: var(--blue-dim); color: var(--blue); }
+  .status-deferred { background: var(--accent-dim); color: var(--accent); }
+
+  /* ─── MOTIVATION ROW ─── */
+  .motivation-row {
+    display: grid;
+    grid-template-columns: 1fr 120px 100px 180px 100px 80px;
+    gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: background var(--transition);
+    align-items: center;
+  }
+  .motivation-row:hover { background: var(--bg-hover); }
+  .motivation-row.selected { background: var(--bg-2); border-left: 2px solid var(--teal); padding-left: 22px; }
+
+  .mot-type {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    width: fit-content;
+  }
+
+  .linked-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .linked-count .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--teal);
+  }
+
+  /* ─── DETAIL PANEL ─── */
+  .detail-panel {
+    border-left: 1px solid var(--border);
+    background: var(--bg-1);
+    overflow-y: auto;
+    animation: slideIn 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes slideIn {
+    from { transform: translateX(30px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .detail-panel::-webkit-scrollbar { width: 4px; }
+  .detail-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .detail-header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .detail-header-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .detail-header-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .detail-close {
+    width: 28px; height: 28px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    border: none;
+    color: var(--text-2);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    transition: all var(--transition);
+  }
+  .detail-close:hover { background: var(--bg-hover); color: var(--text-0); }
+  .detail-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+    flex: 1;
+  }
+
+  .detail-section {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .detail-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .score-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .score-row-label {
+    font-size: 12px;
+    color: var(--text-1);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .score-row-bar {
+    width: 100px;
+    height: 6px;
+    background: var(--bg-3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .score-row-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+  .score-row-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    width: 50px;
+    text-align: right;
+  }
+  .score-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .score-total-label { font-size: 12px; font-weight: 600; color: var(--text-1); }
+  .score-total-val {
+    font-family: 'Syne', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+
+  /* ─── DETAIL: MOTIVATION CARDS ─── */
+  .motivation-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .motivation-card:hover { border-color: var(--text-3); background: var(--bg-3); }
+  .motivation-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .motivation-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    flex: 1;
+  }
+  .motivation-card-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .motivation-card-attrs {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .attr {
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .attr-val {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-1);
+    font-weight: 500;
+  }
+
+  /* ─── DETAIL: OUTCOME CARDS (for motivation detail) ─── */
+  .outcome-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .outcome-card:hover { border-color: var(--text-3); background: var(--bg-3); }
+  .outcome-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .outcome-card-title { font-size: 13px; font-weight: 500; }
+  .outcome-card-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  /* ─── DETAIL: VALUEEDGE ─── */
+  .ve-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+  }
+  .ve-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-3);
+    color: var(--text-2);
+    text-transform: uppercase;
+  }
+  .ve-id { color: var(--teal); font-weight: 500; }
+
+  /* ─── DETAIL: HISTORY ─── */
+  .history-item {
+    display: flex;
+    gap: 10px;
+    padding: 8px 0;
+    font-size: 12px;
+    align-items: flex-start;
+  }
+  .history-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+  .history-text { color: var(--text-2); flex: 1; }
+  .history-text strong { color: var(--text-1); font-weight: 500; }
+  .history-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  /* ─── DETAIL: ACTIONS (now in header) ─── */
+  .btn-action {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 7px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-1);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .btn-action:hover { border-color: var(--text-2); color: var(--text-0); }
+  .btn-action.primary {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .btn-action.primary:hover { background: var(--accent-mid); }
+
+  /* ─── SUMMARY STRIP ─── */
+  .summary-strip {
+    display: flex;
+    gap: 1px;
+    padding: 0;
+    background: var(--border-subtle);
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-stat {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--bg-1);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .summary-stat:first-child { padding-left: 24px; }
+  .summary-stat:last-child { padding-right: 24px; }
+  .summary-stat-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .summary-stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-0);
+    line-height: 1.2;
+  }
+  .summary-stat-value.accent { color: var(--accent); }
+  .summary-stat-value.red { color: var(--red); }
+  .summary-stat-sub {
+    font-size: 10px;
+    color: var(--text-3);
+  }
+
+  /* ─── EFFORT BADGE ─── */
+  .effort-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-3);
+    color: var(--text-2);
+  }
+  .effort-xs { color: var(--green); background: var(--green-dim); }
+  .effort-s { color: var(--teal); background: var(--teal-dim); }
+  .effort-m { color: var(--accent); background: var(--accent-dim); }
+  .effort-l { color: var(--red); background: var(--red-dim); }
+  .effort-xl { color: var(--red); background: var(--red-dim); font-weight: 800; }
+
+  /* ─── MILESTONE BADGE ─── */
+  .milestone-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: var(--bg-3);
+    color: var(--text-2);
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .milestone-badge .ms-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+
+  /* ─── TIMELINE VIEW ─── */
+  .timeline-view {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 24px;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+  .timeline-header-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-0);
+  }
+  .timeline-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    overflow: hidden;
+  }
+  .timeline-backlog {
+    border-right: 1px solid var(--border);
+    background: var(--bg-0);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .timeline-backlog::-webkit-scrollbar { width: 4px; }
+  .timeline-backlog::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .timeline-backlog-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--bg-0);
+    z-index: 5;
+  }
+  .timeline-backlog-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .timeline-backlog-cards {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+  }
+  .backlog-card {
+    background: var(--bg-1);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .backlog-card:hover { border-color: var(--text-3); border-style: solid; background: var(--bg-hover); }
+  .backlog-card-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-1);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .backlog-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .backlog-card-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .timeline-milestones {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .timeline-milestones::-webkit-scrollbar { width: 6px; }
+  .timeline-milestones::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .timeline-section {
+    border-bottom: 1px solid var(--border);
+  }
+  .timeline-section-header {
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-1);
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .timeline-section-header:hover { background: var(--bg-hover); }
+  .timeline-section-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity var(--transition);
+  }
+  .timeline-section-header:hover .timeline-section-actions { opacity: 1; }
+  .timeline-section-actions button {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-1);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .timeline-section-actions button:hover { border-color: var(--text-2); color: var(--text-0); }
+  .timeline-section-actions .btn-del:hover { border-color: var(--red); color: var(--red); }
+  .timeline-section-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .timeline-section-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-0);
+  }
+  .timeline-section-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .timeline-section-date.urgent { color: var(--red); font-weight: 600; }
+  .timeline-section-date.soon { color: var(--accent); font-weight: 600; }
+  .timeline-section-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    background: var(--bg-3);
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: auto;
+  }
+  .timeline-section-type {
+    font-size: 10px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .timeline-section-cards {
+    padding: 4px 24px 12px 46px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .timeline-card {
+    display: grid;
+    grid-template-columns: 1fr 70px 50px 120px;
+    gap: 12px;
+    align-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .timeline-card:hover { border-color: var(--border); background: var(--bg-hover); }
+  .timeline-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-0);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .timeline-card-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    text-align: right;
+  }
+  .timeline-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+
+  .backlog-section .timeline-section-header {
+    border-left: 3px dashed var(--border);
+  }
+  .backlog-section .timeline-section-name {
+    color: var(--text-2);
+  }
+
+  /* ─── PIN ICON ─── */
+  .pin-icon {
+    color: var(--accent);
+    font-size: 12px;
+    margin-right: 4px;
+  }
+
+  /* ─── HIDDEN VIEWS ─── */
+  .view-hidden { display: none; }
+
+  /* ─── EMPTY STATE ─── */
+  .empty-detail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  /* ─── RESPONSIVE SCORE COLORS ─── */
+  .fill-customer { background: var(--blue); }
+  .fill-compliance { background: var(--purple); }
+  .fill-techdebt { background: var(--red); }
+  .fill-mandate { background: var(--accent); }
+  .fill-competitive { background: var(--green); }
+  .fill-accent { background: var(--accent); }
+  .fill-teal { background: var(--teal); }
+
+  /* ─── KEYBOARD HINT ─── */
+  kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-3);
+    color: var(--text-3);
+    border: 1px solid var(--border);
+  }
+
+  /* ─── RICH DESCRIPTION WITH FRAGMENT MAPPING ─── */
+  .description-text {
+    font-size: 13px;
+    color: var(--text-1);
+    line-height: 1.65;
+  }
+  .description-text strong { color: var(--text-0); font-weight: 600; }
+  .description-text em { font-style: italic; color: var(--text-1); }
+  .description-text code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--bg-3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+  .desc-heading {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-0);
+    margin: 4px 0 4px 0;
+    letter-spacing: -0.2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+    color: var(--text-2);
+  }
+  .desc-list-item {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+    align-items: flex-start;
+  }
+  .desc-bullet {
+    color: var(--text-3);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .desc-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--bg-3);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    overflow-x: auto;
+  }
+  .desc-quote {
+    border-left: 2px solid var(--border);
+    padding-left: 12px;
+    color: var(--text-2);
+    font-style: italic;
+    margin-bottom: 8px;
+  }
+  .desc-mapped {
+    display: flex;
+    gap: 0;
+  }
+  .desc-gutter {
+    flex-shrink: 0;
+    width: 14px;
+    position: relative;
+    margin-right: 12px;
+  }
+  .desc-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .desc-content p {
+    margin-bottom: 10px;
+  }
+  .desc-content p:last-child { margin-bottom: 0; }
+
+  /* Gutter bars */
+  .gutter-bar {
+    position: absolute;
+    width: 3px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: opacity var(--transition), width var(--transition);
+    opacity: 0.5;
+  }
+  .gutter-bar:hover {
+    opacity: 1;
+    width: 4px;
+  }
+  .gutter-bar.gb-epic { background: var(--blue); left: 0; }
+  .gutter-bar.gb-feature { background: var(--teal); left: 5px; }
+  .gutter-bar.gb-story { background: var(--accent); left: 10px; }
+
+  /* Gutter tooltip */
+  .gutter-tip {
+    display: none;
+    position: absolute;
+    left: 20px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    white-space: nowrap;
+    z-index: 20;
+    font-size: 11px;
+    pointer-events: none;
+    box-shadow: var(--shadow);
+  }
+  .gutter-bar:hover .gutter-tip { display: block; }
+  .gutter-tip .ve-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 10px;
+  }
+  .gutter-tip .ve-badge-epic { color: var(--blue); }
+  .gutter-tip .ve-badge-feature { color: var(--teal); }
+  .gutter-tip .ve-badge-story { color: var(--accent); }
+
+  /* Text highlight on gutter hover (via JS) */
+  .desc-content .frag-highlight {
+    background: rgba(0,0,0,0.04);
+    border-radius: 2px;
+    transition: background var(--transition);
+  }
+
+  /* Inline entity hints - subtle underlines */
+  .frag-epic { border-bottom: 1.5px solid rgba(42, 122, 200, 0.3); }
+  .frag-feature { border-bottom: 1.5px solid rgba(26, 138, 122, 0.3); }
+  .frag-story { border-bottom: 1.5px solid rgba(192, 122, 26, 0.3); }
+  .frag-epic:hover { border-bottom-color: rgba(42, 122, 200, 0.7); background: rgba(42, 122, 200, 0.06); }
+  .frag-feature:hover { border-bottom-color: rgba(26, 138, 122, 0.7); background: rgba(26, 138, 122, 0.06); }
+  .frag-story:hover { border-bottom-color: rgba(192, 122, 26, 0.7); background: rgba(192, 122, 26, 0.06); }
+
+  /* Inline hover tooltip for text fragments */
+  .frag-inline-tip {
+    display: none;
+    position: absolute;
+    transform: translateY(-100%) translateX(-50%);
+    margin-top: -6px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+    z-index: 20;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+  }
+
+  /* Handled-elsewhere fragments */
+  .frag-handled {
+    text-decoration: line-through;
+    color: var(--text-3);
+    text-decoration-color: var(--text-3);
+  }
+  .frag-handled-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--teal);
+    cursor: pointer;
+    margin-left: 6px;
+    padding: 1px 8px;
+    background: var(--teal-dim);
+    border-radius: 10px;
+    text-decoration: none;
+    transition: all var(--transition);
+    vertical-align: middle;
+  }
+  .frag-handled-link:hover {
+    background: rgba(26, 138, 122, 0.15);
+    color: var(--text-0);
+  }
+  .frag-handled-link .arrow { font-size: 10px; }
+
+  /* Dashed gutter bar for handled-elsewhere */
+  .gutter-bar.gb-dashed {
+    background: none !important;
+    opacity: 0.4;
+  }
+  .gutter-bar.gb-dashed::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 3px;
+    height: 100%;
+    border-radius: 2px;
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--teal) 0px, var(--teal) 4px,
+      transparent 4px, transparent 8px
+    );
+  }
+  .gutter-bar.gb-dashed:hover { opacity: 0.7; }
+
+  /* Description legend */
+  .desc-legend {
+    display: flex;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .desc-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text-3);
+  }
+  .desc-legend-bar {
+    width: 3px;
+    height: 12px;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ─── TOP BAR ─── -->
+  <header class="topbar">
+    <div class="logo">
+      <span class="logo-dot"></span>
+      moou
+    </div>
+    <nav class="nav-tabs">
+      <div class="nav-tab active" data-view="timeline" onclick="switchView('timeline')">
+        Timeline
+      </div>
+      <div class="nav-tab" data-view="outcomes" onclick="switchView('outcomes')">
+        Outcomes <span class="count">12</span>
+      </div>
+      <div class="nav-tab" data-view="motivations" onclick="switchView('motivations')">
+        Motivations <span class="count">18</span>
+      </div>
+    </nav>
+    <div class="topbar-right">
+      <span style="font-size:11px;color:var(--text-3)"><kbd>⌘</kbd> <kbd>K</kbd> search</span>
+      <button class="btn-new" id="newBtn">+ New Milestone</button>
+      <div class="avatar">AJ</div>
+    </div>
+  </header>
+
+  <!-- ─── MAIN ─── -->
+  <div class="main" id="mainArea">
+
+    <!-- ═══ OUTCOMES VIEW ═══ -->
+    <div class="list-view view-hidden" id="outcomesView">
+      <div class="summary-strip">
+        <div class="summary-stat">
+          <span class="summary-stat-label">Active Outcomes</span>
+          <span class="summary-stat-value">7</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-stat-label">Motivations</span>
+          <span class="summary-stat-value">12</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-stat-label">Nearest Deadline</span>
+          <span class="summary-stat-value red">15d</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-stat-label">By Type</span>
+          <span class="summary-stat-value" style="font-size:11px;display:flex;gap:4px;margin-top:3px;flex-wrap:wrap">
+            <span class="motivation-pill pill-customer" style="font-size:9px">Customer ×5</span>
+            <span class="motivation-pill pill-techdebt" style="font-size:9px">Tech Debt ×3</span>
+            <span class="motivation-pill pill-compliance" style="font-size:9px">Compliance ×1</span>
+            <span class="motivation-pill pill-mandate" style="font-size:9px">Mandate ×2</span>
+            <span class="motivation-pill pill-competitive" style="font-size:9px">Gap ×1</span>
+          </span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-stat-label">Effort</span>
+          <span class="summary-stat-value" style="font-size:13px;display:flex;gap:4px;margin-top:2px">
+            <span class="effort-badge effort-s">S×1</span>
+            <span class="effort-badge effort-m">M×3</span>
+            <span class="effort-badge effort-l">L×2</span>
+            <span class="effort-badge effort-xl">XL×1</span>
+          </span>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <span class="tag filter-active" style="background:#c43c3c15;color:#b33030" onclick="toggleFilter(this)"><span class="tag-emoji">🔒</span> security</span>
+        <span class="tag" style="background:#3a8a4a15;color:#2d7a3d" onclick="toggleFilter(this)"><span class="tag-emoji">🏗️</span> platform</span>
+        <span class="tag" style="background:#c07a1a15;color:#a06815" onclick="toggleFilter(this)"><span class="tag-emoji">💰</span> revenue</span>
+        <span class="tag" style="background:#7a5ac815;color:#6a4ab0" onclick="toggleFilter(this)"><span class="tag-emoji">📋</span> compliance</span>
+        <span class="tag" style="background:#2a7ac815;color:#2268aa" onclick="toggleFilter(this)"><span class="tag-emoji">🌍</span> EMEA</span>
+        <span class="tag" style="background:#1a8a7a15;color:#157a6a" onclick="toggleFilter(this)"><span class="tag-emoji">📦</span> area:masking</span>
+        <span class="tag" style="background:#c0701a15;color:#a06015" onclick="toggleFilter(this)"><span class="tag-emoji">🚀</span> release:Q3-2026</span>
+        <div class="filter-sep"></div>
+        <button class="status-filter active">Active</button>
+        <button class="status-filter">Draft</button>
+        <button class="status-filter">Approved</button>
+        <button class="status-filter">All</button>
+      </div>
+
+      <div class="list-header outcomes-header">
+        <span>#</span>
+        <span>Outcome</span>
+        <span>Score</span>
+        <span>Motivations</span>
+        <span>Date</span>
+        <span>Status</span>
+      </div>
+
+      <div class="list-body" id="outcomesBody">
+        <!-- row 1 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(0)">
+          <span class="rank rank-1">#1</span>
+          <div class="outcome-info">
+            <div class="outcome-title">Improve Data Masking Performance</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#c43c3c15;color:#b33030;font-size:10px;padding:1px 7px"><span class="tag-emoji">🔒</span> security</span>
+              <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+              <span class="tag" style="background:#1a8a7a15;color:#157a6a;font-size:10px;padding:1px 7px"><span class="tag-emoji">📦</span> area:masking</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-accent" style="width:92%"></div></div>
+            <span class="score score-high">842</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-customer">Customer ×2</span>
+            <span class="motivation-pill pill-techdebt">Tech Debt</span>
+          </div>
+          <span class="date-cell date-urgent">15 days</span>
+          <span class="status-badge status-active">Active</span>
+        </div>
+
+        <!-- row 2 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(1)">
+          <span class="rank rank-2">#2</span>
+          <div class="outcome-info">
+            <div class="outcome-title">GDPR Data Residency — EU Hosting</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#7a5ac815;color:#6a4ab0;font-size:10px;padding:1px 7px"><span class="tag-emoji">📋</span> compliance</span>
+              <span class="tag" style="background:#2a7ac815;color:#2268aa;font-size:10px;padding:1px 7px"><span class="tag-emoji">🌍</span> EMEA</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-accent" style="width:78%"></div></div>
+            <span class="score score-high">721</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-compliance">Compliance</span>
+            <span class="motivation-pill pill-customer">Customer</span>
+          </div>
+          <span class="date-cell date-soon">45 days</span>
+          <span class="status-badge status-active">Active</span>
+        </div>
+
+        <!-- row 3 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(2)">
+          <span class="rank rank-3">#3</span>
+          <div class="outcome-info">
+            <div class="outcome-title">Migrate CI/CD to GitHub Actions</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+              <span class="tag" style="background:#c0701a15;color:#a06015;font-size:10px;padding:1px 7px"><span class="tag-emoji">🚀</span> release:Q3-2026</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-accent" style="width:63%"></div></div>
+            <span class="score score-mid">584</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-mandate">Mandate</span>
+            <span class="motivation-pill pill-techdebt">Tech Debt</span>
+          </div>
+          <span class="date-cell date-soon">62 days</span>
+          <span class="status-badge status-approved">Approved</span>
+        </div>
+
+        <!-- row 4 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(3)">
+          <span class="rank">#4</span>
+          <div class="outcome-info">
+            <div class="outcome-title">Real-Time Audit Log Streaming</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#c43c3c15;color:#b33030;font-size:10px;padding:1px 7px"><span class="tag-emoji">🔒</span> security</span>
+              <span class="tag" style="background:#c07a1a15;color:#a06815;font-size:10px;padding:1px 7px"><span class="tag-emoji">💰</span> revenue</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-teal" style="width:51%"></div></div>
+            <span class="score score-mid">468</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-customer">Customer</span>
+            <span class="motivation-pill pill-competitive">Gap</span>
+          </div>
+          <span class="date-cell">90+ days</span>
+          <span class="status-badge status-active">Active</span>
+        </div>
+
+        <!-- row 5 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(4)">
+          <span class="rank">#5</span>
+          <div class="outcome-info">
+            <div class="outcome-title">Upgrade PostgreSQL 14 → 16</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-teal" style="width:38%"></div></div>
+            <span class="score score-mid">352</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-techdebt">Tech Debt</span>
+          </div>
+          <span class="date-cell">no date</span>
+          <span class="status-badge status-active">Active</span>
+        </div>
+
+        <!-- row 6 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(5)">
+          <span class="rank">#6</span>
+          <div class="outcome-info">
+            <div class="outcome-title">SSO for Partner Portal</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#c07a1a15;color:#a06815;font-size:10px;padding:1px 7px"><span class="tag-emoji">💰</span> revenue</span>
+              <span class="tag" style="background:#c43c3c15;color:#b33030;font-size:10px;padding:1px 7px"><span class="tag-emoji">🔒</span> security</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-teal" style="width:30%"></div></div>
+            <span class="score score-low">278</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-customer">Customer</span>
+            <span class="motivation-pill pill-competitive">Gap</span>
+          </div>
+          <span class="date-cell">90+ days</span>
+          <span class="status-badge status-draft">Draft</span>
+        </div>
+
+        <!-- row 7 -->
+        <div class="outcome-row" onclick="showOutcomeDetail(6)">
+          <span class="rank">#7</span>
+          <div class="outcome-info">
+            <div class="outcome-title">Deprecate Legacy Notification Service</div>
+            <div class="outcome-meta">
+              <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+            </div>
+          </div>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-teal" style="width:22%"></div></div>
+            <span class="score score-low">203</span>
+          </div>
+          <div class="motivation-pills">
+            <span class="motivation-pill pill-techdebt">Tech Debt</span>
+            <span class="motivation-pill pill-mandate">Mandate</span>
+          </div>
+          <span class="date-cell">no date</span>
+          <span class="status-badge status-deferred">Deferred</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MOTIVATIONS VIEW ═══ -->
+    <div class="list-view view-hidden" id="motivationsView">
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <span class="tag" style="background:#2a7ac815;color:#2268aa" onclick="toggleFilter(this)"><span class="tag-emoji">👥</span> Customer Demand</span>
+        <span class="tag" style="background:#7a5ac815;color:#6a4ab0" onclick="toggleFilter(this)"><span class="tag-emoji">📋</span> Compliance</span>
+        <span class="tag" style="background:#c43c3c15;color:#b33030" onclick="toggleFilter(this)"><span class="tag-emoji">🔧</span> Tech Debt</span>
+        <span class="tag" style="background:#c07a1a15;color:#a06815" onclick="toggleFilter(this)"><span class="tag-emoji">📢</span> Internal Mandate</span>
+        <span class="tag" style="background:#3a8a4a15;color:#2d7a3d" onclick="toggleFilter(this)"><span class="tag-emoji">⚔️</span> Competitive Gap</span>
+        <div class="filter-sep"></div>
+        <span class="tag" style="background:#c43c3c15;color:#b33030" onclick="toggleFilter(this)"><span class="tag-emoji">🔒</span> security</span>
+        <span class="tag" style="background:#2a7ac815;color:#2268aa" onclick="toggleFilter(this)"><span class="tag-emoji">🌍</span> EMEA</span>
+      </div>
+
+      <div class="list-header motivations-header">
+        <span>Motivation</span>
+        <span>Type</span>
+        <span>Score</span>
+        <span>Tags</span>
+        <span>Date</span>
+        <span>Outcomes</span>
+      </div>
+
+      <div class="list-body" id="motivationsBody">
+        <!-- mot 1 -->
+        <div class="motivation-row" onclick="showMotivationDetail(0)">
+          <div class="outcome-info">
+            <div class="outcome-title">Acme Corp — masking perf blocker</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">£1.8M at risk · enterprise · renewal</span>
+            </div>
+          </div>
+          <span class="mot-type pill-customer">Customer</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-customer" style="width:85%"></div></div>
+            <span class="score score-high">486</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#c43c3c15;color:#b33030;font-size:10px;padding:1px 7px"><span class="tag-emoji">🔒</span> security</span>
+            <span class="tag" style="background:#1a8a7a15;color:#157a6a;font-size:10px;padding:1px 7px"><span class="tag-emoji">📦</span> area:masking</span>
+          </div>
+          <span class="date-cell date-urgent">15 days</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+
+        <!-- mot 2 -->
+        <div class="motivation-row" onclick="showMotivationDetail(1)">
+          <div class="outcome-info">
+            <div class="outcome-title">GDPR Art. 44 — data residency mandate</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">£5M exposure · critical · regulation</span>
+            </div>
+          </div>
+          <span class="mot-type pill-compliance">Compliance</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-compliance" style="width:80%"></div></div>
+            <span class="score score-high">461</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#7a5ac815;color:#6a4ab0;font-size:10px;padding:1px 7px"><span class="tag-emoji">📋</span> compliance</span>
+            <span class="tag" style="background:#2a7ac815;color:#2268aa;font-size:10px;padding:1px 7px"><span class="tag-emoji">🌍</span> EMEA</span>
+          </div>
+          <span class="date-cell date-soon">45 days</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+
+        <!-- mot 3 -->
+        <div class="motivation-row" onclick="showMotivationDetail(2)">
+          <div class="outcome-info">
+            <div class="outcome-title">Masking engine scaling failures</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">12 incidents/mo · platform-wide · critical perf</span>
+            </div>
+          </div>
+          <span class="mot-type pill-techdebt">Tech Debt</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-techdebt" style="width:61%"></div></div>
+            <span class="score score-mid">356</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+            <span class="tag" style="background:#1a8a7a15;color:#157a6a;font-size:10px;padding:1px 7px"><span class="tag-emoji">📦</span> area:masking</span>
+          </div>
+          <span class="date-cell">no date</span>
+          <span class="linked-count"><span class="dot"></span> 2</span>
+        </div>
+
+        <!-- mot 4 -->
+        <div class="motivation-row" onclick="showMotivationDetail(3)">
+          <div class="outcome-info">
+            <div class="outcome-title">CTO mandate: migrate to GitHub Actions</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">VP Engineering · tooling · critical override</span>
+            </div>
+          </div>
+          <span class="mot-type pill-mandate">Mandate</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-mandate" style="width:55%"></div></div>
+            <span class="score score-mid">318</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+          </div>
+          <span class="date-cell date-soon">62 days</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+
+        <!-- mot 5 -->
+        <div class="motivation-row" onclick="showMotivationDetail(4)">
+          <div class="outcome-info">
+            <div class="outcome-title">Jenkins tech debt — flaky pipelines</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">8 incidents/mo · service · high perf impact</span>
+            </div>
+          </div>
+          <span class="mot-type pill-techdebt">Tech Debt</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-techdebt" style="width:46%"></div></div>
+            <span class="score score-mid">266</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#3a8a4a15;color:#2d7a3d;font-size:10px;padding:1px 7px"><span class="tag-emoji">🏗️</span> platform</span>
+          </div>
+          <span class="date-cell">no date</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+
+        <!-- mot 6 -->
+        <div class="motivation-row" onclick="showMotivationDetail(5)">
+          <div class="outcome-info">
+            <div class="outcome-title">GlobalBank — audit log for SOC2</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">£800K at risk · enterprise · live</span>
+            </div>
+          </div>
+          <span class="mot-type pill-customer">Customer</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-customer" style="width:43%"></div></div>
+            <span class="score score-mid">248</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#c43c3c15;color:#b33030;font-size:10px;padding:1px 7px"><span class="tag-emoji">🔒</span> security</span>
+            <span class="tag" style="background:#c07a1a15;color:#a06815;font-size:10px;padding:1px 7px"><span class="tag-emoji">💰</span> revenue</span>
+          </div>
+          <span class="date-cell">90+ days</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+
+        <!-- mot 7 -->
+        <div class="motivation-row" onclick="showMotivationDetail(6)">
+          <div class="outcome-info">
+            <div class="outcome-title">Competitor X ships real-time audit</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">3 deals lost · table-stakes gap</span>
+            </div>
+          </div>
+          <span class="mot-type pill-competitive">Gap</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-competitive" style="width:38%"></div></div>
+            <span class="score score-mid">220</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#c07a1a15;color:#a06815;font-size:10px;padding:1px 7px"><span class="tag-emoji">💰</span> revenue</span>
+          </div>
+          <span class="date-cell">no date</span>
+          <span class="linked-count"><span class="dot"></span> 2</span>
+        </div>
+
+        <!-- mot 8 -->
+        <div class="motivation-row" onclick="showMotivationDetail(7)">
+          <div class="outcome-info">
+            <div class="outcome-title">BetaCo — renewal needs SSO</div>
+            <div class="outcome-meta">
+              <span style="font-size:11px;color:var(--text-2)">£500K at risk · enterprise · renewal</span>
+            </div>
+          </div>
+          <span class="mot-type pill-customer">Customer</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar"><div class="score-bar-fill fill-customer" style="width:28%"></div></div>
+            <span class="score score-low">162</span>
+          </div>
+          <div class="outcome-meta">
+            <span class="tag" style="background:#c07a1a15;color:#a06815;font-size:10px;padding:1px 7px"><span class="tag-emoji">💰</span> revenue</span>
+          </div>
+          <span class="date-cell">90+ days</span>
+          <span class="linked-count"><span class="dot"></span> 1</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TIMELINE VIEW ═══ -->
+    <div class="list-view" id="timelineView">
+      <div class="timeline-header">
+        <span class="timeline-header-title">Timeline</span>
+        <button class="btn-new" style="font-size:11px;padding:4px 10px">+ New Milestone</button>
+      </div>
+      <div class="timeline-layout" id="timelineLayout">
+        <div class="timeline-backlog" id="timelineBacklog">
+          <!-- backlog column -->
+        </div>
+        <div class="timeline-milestones" id="timelineMilestones">
+          <!-- milestone sections -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ DETAIL PANEL ═══ -->
+    <div class="detail-panel" id="detailPanel" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+// ─── DATA ───
+const milestones = [
+  { id: 1, name: 'Q2 2026 Release', date: '30 Jun 2026', type: 'release', colour: '#4a9fe8' },
+  { id: 2, name: 'SOC2 Audit', date: '16 May 2026', type: 'deadline', colour: '#9b7ae8' },
+  { id: 3, name: 'Q3 2026 Release', date: '30 Sep 2026', type: 'release', colour: '#5cb870' },
+];
+
+const outcomes = [
+  {
+    title: 'Improve Data Masking Performance',
+    desc: [
+      { type: 'heading', text: 'Problem', ve: { type: 'epic', id: 'VE-1042' } },
+      { type: 'paragraph', text: 'The current masking engine struggles with datasets over <strong>50M rows</strong>, leading to timeouts and support escalations. We need to re-architect the core transformation pipeline to handle enterprise-scale workloads reliably.', ve: { type: 'epic', id: 'VE-1042' } },
+      { type: 'heading', text: 'Approach' },
+      { type: 'paragraph', text: 'Rewrite the batch processor to use <strong>streaming transforms</strong> instead of loading full datasets into memory. Target: handle <strong>500M rows</strong> within SLA.', ve: { type: 'feature', id: 'VE-1043' } },
+      { type: 'list-item', text: 'Add configurable chunking with backpressure so large jobs don\'t starve smaller concurrent requests.', ve: { type: 'story', id: 'VE-1044' }, handledBy: { outcomeIdx: 4, title: 'Upgrade PostgreSQL 14 → 16' } },
+      { type: 'list-item', text: 'Benchmark against current production workloads from <em>Acme Corp</em> and <em>DataFlow Inc</em> to validate performance targets.', ve: { type: 'story', id: 'VE-1045' } },
+      { type: 'heading', text: 'Acceptance Criteria' },
+      { type: 'list-item', text: 'Masking 500M rows completes within <strong>30 minutes</strong>' },
+      { type: 'list-item', text: 'No timeout errors on datasets up to <strong>1B rows</strong>' },
+      { type: 'list-item', text: 'Memory usage stays below <code>8GB</code> per worker' },
+    ],
+    status: 'active', score: 842, effort: 'L', milestone: 1,
+    tags: ['🔒 security', '🏗️ platform', '📦 area:masking'],
+    motivations: [0, 1, 2],
+    ve: [{ type: 'epic', id: 'VE-1042' }, { type: 'feature', id: 'VE-1043' }],
+    history: [
+      { text: '<strong>Sarah Chen</strong> linked motivation "Masking engine scaling failures"', time: '2h ago' },
+      { text: '<strong>James Obi</strong> updated description', time: '1d ago' },
+      { text: '<strong>Sarah Chen</strong> added tag "🏗️ platform"', time: '2d ago' },
+      { text: '<strong>Dev Patel</strong> updated revenue_at_risk from £1.5M to £1.8M on "Acme Corp" motivation', time: '3d ago' },
+      { text: '<strong>James Obi</strong> linked ValueEdge epic VE-1042', time: '4d ago' },
+      { text: '<strong>Sarah Chen</strong> linked motivation "DataFlow Inc — masking SLA breach"', time: '4d ago' },
+      { text: '<strong>Anna Müller</strong> linked motivation "Acme Corp — masking perf blocker"', time: '5d ago' },
+      { text: '<strong>Sarah Chen</strong> created outcome', time: '5d ago' },
+    ]
+  },
+  {
+    title: 'GDPR Data Residency — EU Hosting',
+    desc: [
+      { type: 'paragraph', text: 'Regulatory requirement under <strong>GDPR Article 44</strong> to ensure all EU customer data is processed and stored within EU borders. Failure to comply exposes the company to significant fines.', ve: { type: 'epic', id: 'VE-1050' } },
+      { type: 'heading', text: 'Required Changes' },
+      { type: 'list-item', text: 'Migrate all EU tenant databases to <strong>Frankfurt region</strong> and update routing layer.' },
+      { type: 'list-item', text: 'Ensure data processing pipelines never route EU data through non-EU nodes.' },
+      { type: 'list-item', text: 'Update DPA and sub-processor documentation.' },
+    ],
+    status: 'active', score: 721, effort: 'XL', milestone: 2,
+    tags: ['📋 compliance', '🌍 EMEA'],
+    motivations: [3, 4],
+    ve: [{ type: 'epic', id: 'VE-1050' }],
+    history: [
+      { text: '<strong>Anna Müller</strong> updated deadline to 45 days', time: '3h ago' },
+      { text: '<strong>Sarah Chen</strong> created outcome', time: '2w ago' },
+    ]
+  },
+  {
+    title: 'Migrate CI/CD to GitHub Actions',
+    desc: [{ text: 'CTO-mandated migration from Jenkins to GitHub Actions. Current Jenkins infrastructure is flaky, hard to maintain, and slowing down all teams.' }],
+    status: 'approved', score: 584, effort: 'M', milestone: 3,
+    tags: ['🏗️ platform', '🚀 release:Q3-2026'],
+    motivations: [5, 6],
+    ve: [],
+    history: [
+      { text: '<strong>Dev Patel</strong> approved outcome', time: '1d ago' },
+      { text: '<strong>James Obi</strong> created outcome', time: '1w ago' },
+    ]
+  },
+  {
+    title: 'Real-Time Audit Log Streaming',
+    desc: [
+      { text: 'Enterprise customers need real-time audit log streaming for SOC2 compliance and security monitoring. Competitor X already ships this.', ve: { type: 'feature', id: 'VE-1061' } },
+    ],
+    status: 'active', score: 468, effort: 'M', milestone: 1,
+    tags: ['🔒 security', '💰 revenue'],
+    motivations: [7, 8],
+    ve: [{ type: 'feature', id: 'VE-1061' }],
+    history: [
+      { text: '<strong>Sarah Chen</strong> linked competitive gap motivation', time: '2d ago' },
+      { text: '<strong>James Obi</strong> created outcome', time: '3w ago' },
+    ]
+  },
+  {
+    title: 'Upgrade PostgreSQL 14 → 16',
+    desc: [{ text: 'End of life for PG14 approaching. PG16 brings performance improvements and security patches we need.' }],
+    status: 'active', score: 352, effort: 'M', milestone: 3,
+    tags: ['🏗️ platform'],
+    motivations: [2],
+    ve: [],
+    history: [
+      { text: '<strong>Dev Patel</strong> created outcome', time: '2w ago' },
+    ]
+  },
+  {
+    title: 'SSO for Partner Portal',
+    desc: [{ text: 'Partners currently use basic auth. SSO integration would improve security and reduce onboarding friction.' }],
+    status: 'draft', score: 278, effort: 'L', milestone: null,
+    tags: ['💰 revenue', '🔒 security'],
+    motivations: [9, 8],
+    ve: [],
+    history: [
+      { text: '<strong>Sarah Chen</strong> created draft', time: '1w ago' },
+    ]
+  },
+  {
+    title: 'Deprecate Legacy Notification Service',
+    desc: [{ text: 'Old notification service uses outdated patterns, costs £2K/month in infra, and nobody owns it.' }],
+    status: 'deferred', score: 203, effort: 'S', milestone: null,
+    tags: ['🏗️ platform'],
+    motivations: [10, 11],
+    ve: [],
+    history: [
+      { text: '<strong>Dev Patel</strong> deferred outcome', time: '3d ago' },
+      { text: '<strong>James Obi</strong> created outcome', time: '1m ago' },
+    ]
+  },
+];
+
+const motivations = [
+  { // 0
+    title: 'Acme Corp — masking perf blocker',
+    type: 'Customer Demand', typeClass: 'pill-customer', fillClass: 'fill-customer',
+    score: 486,
+    tags: ['🔒 security', '📦 area:masking'],
+    attrs: { customer: 'Acme Corp', segment: 'Enterprise', revenue_at_risk: '£1,800,000', deal_stage: 'Renewal', target_date: '17 Apr 2026', impact: 'Blocker', confidence: '0.9' },
+    outcomes: [0],
+  },
+  { // 1
+    title: 'DataFlow Inc — masking SLA breach',
+    type: 'Customer Demand', typeClass: 'pill-customer', fillClass: 'fill-customer',
+    score: 312,
+    tags: ['📦 area:masking', '💰 revenue'],
+    attrs: { customer: 'DataFlow Inc', segment: 'Enterprise', revenue_at_risk: '£500,000', revenue_opp: '£200,000', deal_stage: 'Live', target_date: '30 May 2026', impact: 'Major', confidence: '0.8' },
+    outcomes: [0],
+  },
+  { // 2 — shared across 2 outcomes
+    title: 'Masking engine scaling failures',
+    type: 'Tech Debt', typeClass: 'pill-techdebt', fillClass: 'fill-techdebt',
+    score: 356,
+    tags: ['🏗️ platform', '📦 area:masking'],
+    attrs: { incidents_month: '12', perf_impact: 'Critical', blast_radius: 'Platform-wide', support_hours: '18h/mo', arch_risk: 'High' },
+    outcomes: [0, 4],
+  },
+  { // 3
+    title: 'GDPR Art. 44 — data residency mandate',
+    type: 'Compliance', typeClass: 'pill-compliance', fillClass: 'fill-compliance',
+    score: 461,
+    tags: ['📋 compliance', '🌍 EMEA'],
+    attrs: { regulation: 'GDPR Article 44', deadline: '16 May 2026', severity: 'Critical', legal_exposure: '£5,000,000', confidence: '0.95' },
+    outcomes: [1],
+  },
+  { // 4
+    title: 'MegaCorp EU — data must stay in EU',
+    type: 'Customer Demand', typeClass: 'pill-customer', fillClass: 'fill-customer',
+    score: 260,
+    tags: ['🌍 EMEA', '💰 revenue'],
+    attrs: { customer: 'MegaCorp EU', segment: 'Enterprise', revenue_at_risk: '£1,200,000', deal_stage: 'Renewal', target_date: '16 May 2026', impact: 'Blocker', confidence: '0.85' },
+    outcomes: [1],
+  },
+  { // 5
+    title: 'CTO mandate: migrate to GitHub Actions',
+    type: 'Internal Mandate', typeClass: 'pill-mandate', fillClass: 'fill-mandate',
+    score: 318,
+    tags: ['🏗️ platform'],
+    attrs: { stakeholder: 'VP Engineering', mandate_type: 'Tooling', target_date: '02 Jun 2026', justification: 'Standardise on GitHub ecosystem', priority_override: 'Critical' },
+    outcomes: [2],
+  },
+  { // 6
+    title: 'Jenkins tech debt — flaky pipelines',
+    type: 'Tech Debt', typeClass: 'pill-techdebt', fillClass: 'fill-techdebt',
+    score: 266,
+    tags: ['🏗️ platform'],
+    attrs: { incidents_month: '8', perf_impact: 'High', blast_radius: 'Service', support_hours: '12h/mo', arch_risk: 'Medium' },
+    outcomes: [2],
+  },
+  { // 7
+    title: 'GlobalBank — audit log for SOC2',
+    type: 'Customer Demand', typeClass: 'pill-customer', fillClass: 'fill-customer',
+    score: 248,
+    tags: ['🔒 security', '💰 revenue'],
+    attrs: { customer: 'GlobalBank', segment: 'Enterprise', revenue_at_risk: '£800,000', deal_stage: 'Live', target_date: '30 Jun 2026', impact: 'Major', confidence: '0.7' },
+    outcomes: [3],
+  },
+  { // 8 — shared across 2 outcomes
+    title: 'Competitor X ships real-time audit',
+    type: 'Competitive Gap', typeClass: 'pill-competitive', fillClass: 'fill-competitive',
+    score: 220,
+    tags: ['💰 revenue'],
+    attrs: { competitor: 'Competitor X', gap_severity: 'Table-stakes', deals_lost: '3', market_segment: 'Enterprise', confidence: '0.8' },
+    outcomes: [3, 5],
+  },
+  { // 9
+    title: 'BetaCo — renewal needs SSO',
+    type: 'Customer Demand', typeClass: 'pill-customer', fillClass: 'fill-customer',
+    score: 162,
+    tags: ['💰 revenue'],
+    attrs: { customer: 'BetaCo', segment: 'Enterprise', revenue_at_risk: '£500,000', deal_stage: 'Renewal', target_date: '15 Aug 2026', impact: 'Major', confidence: '0.6' },
+    outcomes: [5],
+  },
+  { // 10
+    title: 'Notification service — infra waste',
+    type: 'Tech Debt', typeClass: 'pill-techdebt', fillClass: 'fill-techdebt',
+    score: 120,
+    tags: ['🏗️ platform'],
+    attrs: { incidents_month: '2', perf_impact: 'Low', blast_radius: 'Component', support_hours: '4h/mo', arch_risk: 'Medium' },
+    outcomes: [6],
+  },
+  { // 11
+    title: 'Platform team mandate: reduce services',
+    type: 'Internal Mandate', typeClass: 'pill-mandate', fillClass: 'fill-mandate',
+    score: 83,
+    tags: ['🏗️ platform'],
+    attrs: { stakeholder: 'Platform Lead', mandate_type: 'Strategy', target_date: 'None', justification: 'Reduce operational surface area', priority_override: 'Low' },
+    outcomes: [6],
+  },
+];
+
+// ─── VIEW SWITCHING ───
+function switchView(view) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.getElementById('outcomesView').classList.toggle('view-hidden', view !== 'outcomes');
+  document.getElementById('motivationsView').classList.toggle('view-hidden', view !== 'motivations');
+  document.getElementById('timelineView').classList.toggle('view-hidden', view !== 'timeline');
+  closeDetail();
+  if (view === 'timeline') renderTimeline();
+  const labels = { outcomes: '+ New Outcome', motivations: '+ New Motivation', timeline: '+ New Milestone' };
+  document.getElementById('newBtn').textContent = labels[view] || '+ New';
+}
+
+function renderTimeline() {
+  const backlogEl = document.getElementById('timelineBacklog');
+  const milestonesEl = document.getElementById('timelineMilestones');
+
+  // Group by milestone
+  const grouped = {};
+  milestones.forEach(m => grouped[m.id] = []);
+  const backlog = [];
+  outcomes.forEach((o, i) => {
+    if (o.milestone) grouped[o.milestone].push({ ...o, idx: i });
+    else backlog.push({ ...o, idx: i });
+  });
+
+  // Backlog sidebar
+  let backlogHtml = `<div class="timeline-backlog-header">
+    <span class="timeline-backlog-title">Backlog</span>
+    <span class="timeline-section-count">${backlog.length}</span>
+  </div>
+  <div class="timeline-backlog-cards">`;
+  backlog.sort((a, b) => b.score - a.score).forEach(o => {
+    const effortClass = o.effort ? `effort-${o.effort.toLowerCase()}` : '';
+    backlogHtml += `<div class="backlog-card" onclick="showOutcomeDetail(${o.idx})">
+      <div class="backlog-card-title">${o.title}</div>
+      <div class="backlog-card-meta">
+        <span class="backlog-card-score">${o.score}</span>
+        ${o.effort ? `<span class="effort-badge ${effortClass}">${o.effort}</span>` : ''}
+        <span class="status-badge status-${o.status}" style="font-size:9px">${o.status}</span>
+      </div>
+    </div>`;
+  });
+  backlogHtml += '</div>';
+  backlogEl.innerHTML = backlogHtml;
+
+  // Milestone sections sorted by date
+  let msHtml = '';
+  const sorted = [...milestones].sort((a, b) => new Date(a.date) - new Date(b.date));
+  sorted.forEach(m => {
+    const items = (grouped[m.id] || []).sort((a, b) => b.score - a.score);
+    const daysAway = Math.ceil((new Date(m.date) - new Date()) / (1000*60*60*24));
+    const dateClass = daysAway < 7 ? 'urgent' : daysAway < 30 ? 'soon' : '';
+    const daysLabel = daysAway < 0 ? 'overdue' : daysAway + 'd away';
+
+    msHtml += `<div class="timeline-section">
+      <div class="timeline-section-header">
+        <span class="timeline-section-dot" style="background:${m.colour}"></span>
+        <span class="timeline-section-name">${m.name}</span>
+        <span class="timeline-section-type">${m.type}</span>
+        <span class="timeline-section-date ${dateClass}">${m.date} · ${daysLabel}</span>
+        <span class="timeline-section-count">${items.length} outcome${items.length !== 1 ? 's' : ''}</span>
+        <div class="timeline-section-actions">
+          <button onclick="event.stopPropagation()">Edit</button>
+          <button class="btn-del" onclick="event.stopPropagation()">Delete</button>
+        </div>
+      </div>
+      <div class="timeline-section-cards">`;
+    items.forEach(o => { msHtml += renderTimelineCard(o, o.idx); });
+    msHtml += `</div></div>`;
+  });
+
+  milestonesEl.innerHTML = msHtml;
+}
+
+function renderTimelineCard(o, idx) {
+  const effortClass = o.effort ? `effort-${o.effort.toLowerCase()}` : '';
+  const pills = o.motivations ? o.motivations.slice(0, 3).map(mi => {
+    const m = motivations[mi];
+    return `<span class="motivation-pill ${m.typeClass}" style="font-size:9px;padding:1px 5px">${m.type.split(' ')[0]}</span>`;
+  }).join('') : '';
+
+  return `<div class="timeline-card" onclick="showOutcomeDetail(${idx})">
+    <div class="timeline-card-title">${o.title}</div>
+    <span class="timeline-card-score">${o.score}</span>
+    ${o.effort ? `<span class="effort-badge ${effortClass}">${o.effort}</span>` : '<span></span>'}
+    <div class="timeline-card-meta">${pills}</div>
+  </div>`;
+}
+
+// ─── TAG FILTER TOGGLE ───
+function toggleFilter(el) {
+  el.classList.toggle('filter-active');
+}
+
+// ─── DETAIL PANEL ───
+function closeDetail() {
+  document.getElementById('detailPanel').style.display = 'none';
+  document.getElementById('mainArea').classList.remove('has-detail');
+  document.querySelectorAll('.outcome-row, .motivation-row').forEach(r => r.classList.remove('selected'));
+}
+
+function renderDescription(desc) {
+  if (typeof desc === 'string') {
+    return `<div class="description-text">${desc}</div>`;
+  }
+
+  const hasLinks = desc.some(d => d.ve || d.handledBy);
+
+  // Render a single block as HTML
+  function renderBlock(frag) {
+    const t = frag.type || 'paragraph';
+    switch (t) {
+      case 'heading':
+        return `<h3 class="desc-heading">${frag.text}</h3>`;
+      case 'list-item':
+        return `<div class="desc-list-item"><span class="desc-bullet">•</span><span>${frag.text}</span></div>`;
+      case 'code':
+        return `<pre class="desc-code">${frag.text}</pre>`;
+      case 'quote':
+        return `<blockquote class="desc-quote">${frag.text}</blockquote>`;
+      default:
+        return `<p>${frag.text}</p>`;
+    }
+  }
+
+  if (!hasLinks) {
+    return `<div class="description-text">${desc.map(renderBlock).join('')}</div>`;
+  }
+
+  // Build blocks with gutter bars
+  const blockHeights = { heading: 32, paragraph: null, 'list-item': null, code: null, quote: null };
+  const charsPerLine = 50;
+  const lineHeight = 22;
+  let gutterBars = '';
+  let contentHtml = '';
+  let yOffset = 0;
+  let hasHandled = false;
+
+  // Group consecutive blocks with the same VE entity for spanning bars
+  const veSpans = {}; // veId -> { type, startY, endY, hasHandled }
+
+  desc.forEach((frag, i) => {
+    const isHandled = !!frag.handledBy;
+    if (isHandled) hasHandled = true;
+    const t = frag.type || 'paragraph';
+
+    // Calculate block height
+    const strippedLen = frag.text.replace(/<[^>]+>/g, '').length;
+    let blockH;
+    if (t === 'heading') {
+      blockH = 36;
+    } else {
+      const lines = Math.max(1, Math.ceil(strippedLen / charsPerLine));
+      blockH = lines * lineHeight + (t === 'list-item' ? 6 : 12);
+    }
+    const extraHeight = isHandled ? 28 : 0;
+    const totalH = blockH + extraHeight;
+
+    // Track VE entity spans
+    if (frag.ve) {
+      const veKey = frag.ve.id;
+      if (!veSpans[veKey]) {
+        veSpans[veKey] = { type: frag.ve.type, startY: yOffset, endY: yOffset + totalH, hasHandled: isHandled, fragIndices: [i] };
+      } else {
+        veSpans[veKey].endY = yOffset + totalH;
+        veSpans[veKey].fragIndices.push(i);
+        if (isHandled) veSpans[veKey].hasHandled = true;
+      }
+    }
+
+    // Render block content
+    if (isHandled) {
+      const fragClass = frag.ve ? `frag-${frag.ve.type}` : '';
+      if (t === 'list-item') {
+        contentHtml += `<div class="desc-list-item">
+          <span class="desc-bullet" style="color:var(--text-3)">•</span>
+          <span>
+            <span class="frag-handled ${fragClass}" data-frag="${i}">${frag.text}</span>
+            <span class="frag-handled-link" onclick="event.stopPropagation();navToOutcome(${frag.handledBy.outcomeIdx})"><span class="arrow">→</span> ${frag.handledBy.title}</span>
+          </span>
+        </div>`;
+      } else {
+        contentHtml += `<p>
+          <span class="frag-handled ${fragClass}" data-frag="${i}">${frag.text}</span>
+          <br><span class="frag-handled-link" onclick="event.stopPropagation();navToOutcome(${frag.handledBy.outcomeIdx})"><span class="arrow">→</span> ${frag.handledBy.title}</span>
+        </p>`;
+      }
+    } else if (frag.ve) {
+      const fragClass = `frag-${frag.ve.type}`;
+      if (t === 'heading') {
+        contentHtml += `<h3 class="desc-heading"><span class="${fragClass}" data-frag="${i}" title="${frag.ve.type.toUpperCase()} ${frag.ve.id}">${frag.text}</span></h3>`;
+      } else if (t === 'list-item') {
+        contentHtml += `<div class="desc-list-item"><span class="desc-bullet">•</span><span class="${fragClass}" data-frag="${i}" title="${frag.ve.type.toUpperCase()} ${frag.ve.id}">${frag.text}</span></div>`;
+      } else {
+        contentHtml += `<p><span class="${fragClass}" data-frag="${i}" title="${frag.ve.type.toUpperCase()} ${frag.ve.id}">${frag.text}</span></p>`;
+      }
+    } else {
+      contentHtml += renderBlock(frag);
+    }
+
+    yOffset += totalH;
+  });
+
+  // Build gutter bars from VE spans (spanning consecutive blocks)
+  Object.entries(veSpans).forEach(([veId, span]) => {
+    const barClass = span.type === 'epic' ? 'gb-epic' : span.type === 'feature' ? 'gb-feature' : 'gb-story';
+    const dashedClass = span.hasHandled ? ' gb-dashed' : '';
+    const badgeClass = `ve-badge-${span.type}`;
+    const barH = span.endY - span.startY - 4;
+    gutterBars += `<div class="gutter-bar ${barClass}${dashedClass}" style="top:${span.startY}px;height:${barH}px" data-frag="${span.fragIndices[0]}">
+      <div class="gutter-tip"><span class="ve-badge ${badgeClass}">${span.type.toUpperCase()}</span> ${veId}${span.hasHandled ? ' (handled elsewhere)' : ''}</div>
+    </div>`;
+  });
+
+  let legendItems = `
+    <span class="desc-legend-item"><span class="desc-legend-bar" style="background:var(--blue)"></span> Epic</span>
+    <span class="desc-legend-item"><span class="desc-legend-bar" style="background:var(--teal)"></span> Feature</span>
+    <span class="desc-legend-item"><span class="desc-legend-bar" style="background:var(--accent)"></span> Story</span>`;
+  if (hasHandled) {
+    legendItems += `<span class="desc-legend-item"><span class="desc-legend-bar" style="background:repeating-linear-gradient(to bottom,var(--teal) 0px,var(--teal) 3px,transparent 3px,transparent 6px)"></span> Handled elsewhere</span>`;
+  }
+
+  const legendHtml = `<div class="desc-legend">
+    ${legendItems}
+    <span style="margin-left:auto;font-size:10px;color:var(--text-3)">Hover bars to see linked entities</span>
+  </div>`;
+
+  return `<div class="desc-mapped">
+    <div class="desc-gutter" style="height:${yOffset}px">${gutterBars}</div>
+    <div class="desc-content description-text">${contentHtml}</div>
+  </div>${legendHtml}`;
+}
+
+function showOutcomeDetail(idx) {
+  const o = outcomes[idx];
+  const panel = document.getElementById('detailPanel');
+  document.getElementById('mainArea').classList.add('has-detail');
+  panel.style.display = 'block';
+
+  document.querySelectorAll('.outcome-row').forEach((r, i) => r.classList.toggle('selected', i === idx));
+
+  const statusClass = `status-${o.status}`;
+  const tagsHtml = o.tags.map(t => {
+    const colors = tagColor(t);
+    return `<span class="tag" style="background:${colors.bg};color:${colors.fg};font-size:10px;padding:1px 7px">${t}</span>`;
+  }).join('');
+
+  const motCardsHtml = o.motivations.map(mi => {
+    const m = motivations[mi];
+    const attrsHtml = Object.entries(m.attrs).slice(0, 4).map(([k,v]) =>
+      `<span class="attr">${k.replace(/_/g,' ')}: <span class="attr-val">${v}</span></span>`
+    ).join('');
+    return `<div class="motivation-card" onclick="navToMotivation(${mi})">
+      <div class="motivation-card-head">
+        <span class="motivation-pill ${m.typeClass}">${m.type}</span>
+        <span class="motivation-card-title">${m.title}</span>
+        <span class="motivation-card-score">${m.score}</span>
+      </div>
+      <div class="motivation-card-attrs">${attrsHtml}</div>
+    </div>`;
+  }).join('');
+
+  const scoreRows = o.motivations.map(mi => {
+    const m = motivations[mi];
+    const pct = Math.round((m.score / o.score) * 100);
+    return `<div class="score-row">
+      <span class="score-row-label">${m.title}</span>
+      <div class="score-row-bar"><div class="score-row-fill ${m.fillClass}" style="width:${pct}%"></div></div>
+      <span class="score-row-val" style="color:${m.typeClass === 'pill-customer' ? 'var(--blue)' : m.typeClass === 'pill-compliance' ? 'var(--purple)' : m.typeClass === 'pill-techdebt' ? 'var(--red)' : m.typeClass === 'pill-mandate' ? 'var(--accent)' : 'var(--green)'}">${m.score}</span>
+    </div>`;
+  }).join('');
+
+  const veHtml = o.ve.length ? o.ve.map(v =>
+    `<div class="ve-link"><span class="ve-type">${v.type}</span> <span class="ve-id">${v.id}</span></div>`
+  ).join('') : '<span style="font-size:12px;color:var(--text-3)">No links yet</span>';
+
+  const historyPreview = 3;
+  const historyVisibleHtml = o.history.slice(0, historyPreview).map(h =>
+    `<div class="history-item"><span class="history-dot"></span><span class="history-text">${h.text}</span><span class="history-time">${h.time}</span></div>`
+  ).join('');
+  const historyHiddenHtml = o.history.slice(historyPreview).map(h =>
+    `<div class="history-item"><span class="history-dot"></span><span class="history-text">${h.text}</span><span class="history-time">${h.time}</span></div>`
+  ).join('');
+  const historyOverflow = o.history.length > historyPreview;
+  const historyRemainder = o.history.length - historyPreview;
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-header-top">
+        <button class="detail-close" onclick="closeDetail()">✕</button>
+        <div style="flex:1;min-width:0">
+          <div class="detail-title">${o.title}</div>
+          <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+            <span class="status-badge ${statusClass}">${o.status}</span>
+            ${o.effort ? `<span class="effort-badge effort-${o.effort.toLowerCase()}">${o.effort}</span>` : ''}
+            ${o.milestone ? `<span class="milestone-badge"><span class="ms-dot" style="background:${milestones.find(m=>m.id===o.milestone)?.colour||'var(--text-3)'}"></span>${milestones.find(m=>m.id===o.milestone)?.name||''}</span>` : ''}
+            ${tagsHtml}
+          </div>
+        </div>
+      </div>
+      <div class="detail-header-actions">
+        <button class="btn-action">Edit</button>
+        <button class="btn-action primary">✂ Split</button>
+        <button class="btn-action">Archive</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Description</div>
+      ${renderDescription(o.desc)}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Priority Score Breakdown</div>
+      <div class="score-breakdown">
+        ${scoreRows}
+        <div class="score-total">
+          <span class="score-total-label">Total Priority</span>
+          <span class="score-total-val">${o.score}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Motivations (${o.motivations.length})</div>
+      ${motCardsHtml}
+      <button class="btn-action" style="margin-top:8px;width:100%">+ Link Motivation</button>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">ValueEdge Links</div>
+      ${veHtml}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">History${historyOverflow ? ` <span style="font-weight:400;color:var(--text-3);text-transform:none;letter-spacing:0">(${o.history.length} changes)</span>` : ''}</div>
+      ${historyVisibleHtml}
+      ${historyOverflow ? `
+        <div id="historyHidden" style="display:none">${historyHiddenHtml}</div>
+        <button class="btn-action" id="showOlderBtn" onclick="document.getElementById('historyHidden').style.display='block';this.style.display='none'" style="margin-top:8px;width:100%;text-align:center;font-size:11px">
+          Show ${historyRemainder} older change${historyRemainder > 1 ? 's' : ''}
+        </button>
+      ` : ''}
+    </div>
+  `;
+}
+
+function showMotivationDetail(idx) {
+  // Map motivation view row index to actual motivation index
+  const motViewOrder = [0, 3, 2, 5, 6, 7, 8, 9]; // order shown in motivations view
+  const mi = motViewOrder[idx] !== undefined ? motViewOrder[idx] : idx;
+  const m = motivations[mi];
+  if (!m) return;
+
+  const panel = document.getElementById('detailPanel');
+  document.getElementById('mainArea').classList.add('has-detail');
+  panel.style.display = 'block';
+
+  document.querySelectorAll('.motivation-row').forEach((r, i) => r.classList.toggle('selected', i === idx));
+
+  const tagsHtml = m.tags.map(t => {
+    const colors = tagColor(t);
+    return `<span class="tag" style="background:${colors.bg};color:${colors.fg};font-size:10px;padding:1px 7px">${t}</span>`;
+  }).join('');
+
+  const attrsHtml = Object.entries(m.attrs).map(([k,v]) =>
+    `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-subtle)">
+      <span style="font-size:12px;color:var(--text-2)">${k.replace(/_/g,' ')}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-0)">${v}</span>
+    </div>`
+  ).join('');
+
+  const outcomeCardsHtml = m.outcomes.map(oi => {
+    const o = outcomes[oi];
+    const statusClass = `status-${o.status}`;
+    return `<div class="outcome-card" onclick="navToOutcome(${oi})">
+      <div class="outcome-card-head">
+        <span class="outcome-card-title">${o.title}</span>
+        <span class="outcome-card-score score-high">${o.score}</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <span class="status-badge ${statusClass}">${o.status}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-header-top">
+        <button class="detail-close" onclick="closeDetail()">✕</button>
+        <div style="flex:1;min-width:0">
+          <div class="detail-title">${m.title}</div>
+          <div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="motivation-pill ${m.typeClass}">${m.type}</span>
+            ${tagsHtml}
+          </div>
+        </div>
+      </div>
+      <div class="detail-header-actions">
+        <button class="btn-action">Edit</button>
+        <button class="btn-action" style="border-color:var(--red);color:var(--red);background:var(--red-dim)">Delete</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Score</div>
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span class="score-total-val">${m.score}</span>
+        <span style="font-size:12px;color:var(--text-3)">from formula</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Attributes</div>
+      ${attrsHtml}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Linked Outcomes (${m.outcomes.length})</div>
+      ${outcomeCardsHtml}
+      <button class="btn-action" style="margin-top:8px;width:100%">+ Link to Outcome</button>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">History <span style="font-weight:400;color:var(--text-3);text-transform:none;letter-spacing:0">(5 changes)</span></div>
+      <div class="history-item"><span class="history-dot"></span><span class="history-text"><strong>Sarah Chen</strong> updated confidence to 0.9</span><span class="history-time">1d ago</span></div>
+      <div class="history-item"><span class="history-dot"></span><span class="history-text"><strong>Dev Patel</strong> updated revenue_at_risk from £1.5M to £1.8M</span><span class="history-time">3d ago</span></div>
+      <div class="history-item"><span class="history-dot"></span><span class="history-text"><strong>Anna Müller</strong> linked to "Improve Data Masking Performance"</span><span class="history-time">5d ago</span></div>
+      <div id="motHistoryHidden" style="display:none">
+        <div class="history-item"><span class="history-dot"></span><span class="history-text"><strong>James Obi</strong> updated target_date to 17 Apr 2026</span><span class="history-time">1w ago</span></div>
+        <div class="history-item"><span class="history-dot"></span><span class="history-text"><strong>James Obi</strong> created motivation</span><span class="history-time">2w ago</span></div>
+      </div>
+      <button class="btn-action" onclick="document.getElementById('motHistoryHidden').style.display='block';this.style.display='none'" style="margin-top:8px;width:100%;text-align:center;font-size:11px">
+        Show 2 older changes
+      </button>
+    </div>
+  `;
+}
+
+// ─── CROSS-NAVIGATION ───
+function navToOutcome(idx) {
+  switchView('outcomes');
+  setTimeout(() => showOutcomeDetail(idx), 50);
+}
+
+function navToMotivation(mi) {
+  switchView('motivations');
+  // Find which row index this motivation maps to in the motivations view
+  const motViewOrder = [0, 3, 2, 5, 6, 7, 8, 9];
+  const viewIdx = motViewOrder.indexOf(mi);
+  setTimeout(() => showMotivationDetail(viewIdx >= 0 ? viewIdx : 0), 50);
+}
+
+// ─── TAG COLORS ───
+function tagColor(tag) {
+  const map = {
+    '🔒 security': { bg: '#c43c3c15', fg: '#b33030' },
+    '🏗️ platform': { bg: '#3a8a4a15', fg: '#2d7a3d' },
+    '💰 revenue': { bg: '#c07a1a15', fg: '#a06815' },
+    '📋 compliance': { bg: '#7a5ac815', fg: '#6a4ab0' },
+    '🌍 EMEA': { bg: '#2a7ac815', fg: '#2268aa' },
+    '📦 area:masking': { bg: '#1a8a7a15', fg: '#157a6a' },
+    '🚀 release:Q3-2026': { bg: '#c0701a15', fg: '#a06015' },
+  };
+  return map[tag] || { bg: 'var(--bg-3)', fg: 'var(--text-2)' };
+}
+
+// ─── STATUS FILTER TOGGLE ───
+document.querySelectorAll('.status-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('active');
+  });
+});
+
+// ─── INITIAL RENDER ───
+renderTimeline();
+</script>
+</body>
+</html>

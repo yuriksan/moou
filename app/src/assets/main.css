@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg-0: #f8f8f6;
+  --bg-1: #ffffff;
+  --bg-2: #f2f1ee;
+  --bg-3: #e8e7e3;
+  --bg-hover: #f0efeb;
+  --border: #dddcd8;
+  --border-subtle: #ebeae6;
+  --text-0: #1a1a1a;
+  --text-1: #4a4a46;
+  --text-2: #7a7a74;
+  --text-3: #a8a8a0;
+  --accent: #c07a1a;
+  --accent-dim: #c07a1a12;
+  --accent-mid: #c07a1a25;
+  --teal: #1a8a7a;
+  --teal-dim: #1a8a7a10;
+  --red: #c43c3c;
+  --red-dim: #c43c3c10;
+  --purple: #7a5ac8;
+  --purple-dim: #7a5ac810;
+  --blue: #2a7ac8;
+  --blue-dim: #2a7ac810;
+  --green: #3a8a4a;
+  --green-dim: #3a8a4a10;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --transition: 180ms ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg-0);
+  color: var(--text-0);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Typography ─── */
+.font-display { font-family: 'Syne', sans-serif; }
+.font-mono { font-family: 'JetBrains Mono', monospace; }
+
+/* ─── Scrollbars ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Common components ─── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 1px solid transparent;
+  user-select: none;
+}
+.tag:hover { opacity: 0.85; }
+
+.status-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  width: fit-content;
+}
+.status-active { background: var(--green-dim); color: var(--green); }
+.status-draft { background: var(--bg-3); color: var(--text-2); }
+.status-approved { background: var(--blue-dim); color: var(--blue); }
+.status-deferred { background: var(--accent-dim); color: var(--accent); }
+.status-completed { background: var(--teal-dim); color: var(--teal); }
+
+.effort-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--text-2);
+}
+.effort-xs { color: var(--green); background: var(--green-dim); }
+.effort-s { color: var(--teal); background: var(--teal-dim); }
+.effort-m { color: var(--accent); background: var(--accent-dim); }
+.effort-l { color: var(--red); background: var(--red-dim); }
+.effort-xl { color: var(--red); background: var(--red-dim); font-weight: 800; }
+
+.motivation-pill {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pill-customer { background: var(--blue-dim); color: var(--blue); }
+.pill-compliance { background: var(--purple-dim); color: var(--purple); }
+.pill-techdebt { background: var(--red-dim); color: var(--red); }
+.pill-mandate { background: var(--accent-dim); color: var(--accent); }
+.pill-competitive { background: var(--green-dim); color: var(--green); }
+
+.btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btn:hover { border-color: var(--text-2); color: var(--text-0); }
+.btn-primary {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.btn-primary:hover { background: var(--accent-mid); }
+.btn-sm { font-size: 11px; padding: 4px 10px; }

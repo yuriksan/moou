@@ -1,0 +1,13 @@
+{
+  "name": "moou",
+  "private": true,
+  "workspaces": ["shared", "api", "app"],
+  "scripts": {
+    "dev": "npm run dev --workspace=api",
+    "build": "npm run build --workspace=shared && npm run build --workspace=api",
+    "typecheck": "tsc --build"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

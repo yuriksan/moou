@@ -1,0 +1,133 @@
+import type { ProviderAdapter, BackendItem, ChildProgress, ProviderEntityType } from './adapter.js';
+
+const GITHUB_API = 'https://api.github.com';
+const GITHUB_REPO = process.env.GITHUB_REPO || '';
+
+function repoUrl(): string {
+  return `${GITHUB_API}/repos/${GITHUB_REPO}`;
+}
+
+function headers(token: string, etag?: string): Record<string, string> {
+  const h: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (etag) h['If-None-Match'] = etag;
+  return h;
+}
+
+function mapIssue(data: any): BackendItem {
+  return {
+    entityType: data.pull_request ? 'pr' : 'issue',
+    entityId: String(data.number),
+    title: data.title,
+    state: data.pull_request?.merged_at ? 'merged' : data.draft ? 'draft' : data.state,
+    stateReason: data.state_reason || undefined,
+    labels: (data.labels || []).map((l: any) => ({ name: l.name, color: l.color })),
+    assignee: data.assignee ? {
+      login: data.assignee.login,
+      avatarUrl: data.assignee.avatar_url,
+    } : undefined,
+    milestone: data.milestone ? {
+      title: data.milestone.title,
+      dueOn: data.milestone.due_on || undefined,
+    } : undefined,
+    htmlUrl: data.html_url,
+  };
+}
+
+export class GitHubAdapter implements ProviderAdapter {
+  name = 'github';
+  label = 'GitHub';
+  entityTypes: ProviderEntityType[] = [
+    { name: 'issue', label: 'Issue', default: true },
+    { name: 'pr', label: 'Pull Request' },
+  ];
+
+  async searchItems(token: string, query: string, entityType?: string): Promise<BackendItem[]> {
+    const typeFilter = entityType === 'pr' ? '+is:pr' : entityType === 'issue' ? '+is:issue' : '';
+    const q = encodeURIComponent(`${query}+repo:${GITHUB_REPO}${typeFilter}`);
+    const res = await fetch(`${GITHUB_API}/search/issues?q=${q}&per_page=20`, {
+      headers: headers(token),
+    });
+
+    if (!res.ok) {
+      console.error(`GitHub search failed: ${res.status}`);
+      return [];
+    }
+
+    const data = await res.json() as { items: any[] };
+    return data.items.map(mapIssue);
+  }
+
+  async getItemDetails(token: string, entityType: string, entityId: string, etag?: string): Promise<{ item: BackendItem; etag?: string } | 'not-modified'> {
+    const path = entityType === 'pr'
+      ? `${repoUrl()}/pulls/${entityId}`
+      : `${repoUrl()}/issues/${entityId}`;
+
+    const res = await fetch(path, { headers: headers(token, etag) });
+
+    if (res.status === 304) return 'not-modified';
+
+    if (!res.ok) {
+      throw new Error(`GitHub API error: ${res.status} fetching ${entityType} #${entityId}`);
+    }
+
+    const data = await res.json();
+    const newEtag = res.headers.get('etag') || undefined;
+
+    // For PRs fetched via the pulls endpoint, check merged state
+    if (entityType === 'pr' && data.merged) {
+      data.state = 'merged';
+    }
+
+    return { item: mapIssue(data), etag: newEtag };
+  }
+
+  async getChildProgress(token: string, entityType: string, entityId: string): Promise<ChildProgress | null> {
+    // GitHub doesn't have a native parent-child hierarchy for issues.
+    // Try the sub-issues API (available on some plans) or return null.
+    try {
+      const res = await fetch(`${repoUrl()}/issues/${entityId}/sub_issues?per_page=100`, {
+        headers: headers(token),
+      });
+
+      if (!res.ok) return null;
+
+      const data = await res.json() as any[];
+      if (!Array.isArray(data) || data.length === 0) return null;
+
+      const total = data.length;
+      const completed = data.filter((i: any) => i.state === 'closed').length;
+      const inProgress = total - completed; // GitHub doesn't have "in progress" — open = in progress
+
+      return { total, completed, inProgress };
+    } catch {
+      return null;
+    }
+  }
+
+  async createItem(token: string, entityType: string, title: string, description?: string): Promise<{ entityId: string; url: string }> {
+    if (entityType === 'pr') {
+      throw new Error('Cannot create pull requests from moou — create an issue instead');
+    }
+
+    const res = await fetch(`${repoUrl()}/issues`, {
+      method: 'POST',
+      headers: headers(token),
+      body: JSON.stringify({
+        title,
+        body: description || '',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as any;
+      throw new Error(`GitHub API error: ${res.status} — ${err.message || 'failed to create issue'}`);
+    }
+
+    const data = await res.json() as { number: number; html_url: string };
+    return { entityId: String(data.number), url: data.html_url };
+  }
+}
