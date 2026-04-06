@@ -163,28 +163,28 @@ interface BackendItem {
 
 **Done when:** User clicks "Publish as GitHub" on a draft outcome, a GitHub issue is created, the outcome shows it as "Published" with live status. ✅
 
-### Phase 5: Documentation + Tests + Docs
+### Phase 5: Documentation + Tests + Docs ✅
 
-- [ ] Create `docs/INTEGRATIONS.md` — developer guide:
+- [x] Create `docs/INTEGRATIONS.md` — developer guide:
   - Provider adapter interface
   - How to add a new provider (auth module + adapter)
   - GitHub adapter as reference implementation
   - Entity type mapping
   - Refresh strategy (ETag, stale threshold)
   - Testing approach
-- [ ] Create `docs/GITHUB-SETUP.md` — user guide:
+- [x] Create `docs/GITHUB-SETUP.md` — user guide:
   - Creating a GitHub OAuth App (step-by-step)
   - Required env vars
   - Docker deployment with GitHub auth
   - Connecting outcomes to issues
   - Publishing outcomes as issues
   - Troubleshooting
-- [ ] Update `docs/DECISIONS.md` — ADR-014: Backend sync architecture
-- [ ] Update `docs/SPEC.md` — External system integration section
-- [ ] Update `README.md` — GitHub integration section
-- [ ] Integration tests with mocked GitHub API for full connect + publish + refresh flow
+- [x] Update `docs/DECISIONS.md` — ADR-014: Backend sync architecture
+- [x] Update `docs/SPEC.md` — External system integration section
+- [x] Update `README.md` — GitHub integration section
+- [x] Integration tests with mocked GitHub API for full connect + publish + refresh flow (`api/src/__tests__/backend-e2e.test.ts`)
 
-**Done when:** Developer can read INTEGRATIONS.md and understand how to add ValueEdge. User can follow GITHUB-SETUP.md from scratch.
+**Done when:** Developer can read INTEGRATIONS.md and understand how to add a new provider. User can follow GITHUB-SETUP.md from scratch. ✅
 
 ## Acceptance Criteria
 

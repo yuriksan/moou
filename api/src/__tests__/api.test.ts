@@ -582,4 +582,29 @@ describe('Search', () => {
     const res = await api().get('/search?q=');
     expect(res.body.outcomes).toHaveLength(0);
   });
+
+  it('GET /search escapes ILIKE wildcards in the query', async () => {
+    // Three outcomes: one matches the literal underscore search, two don't.
+    // Without escaping, "C_C" would match all three because _ means "any char".
+    await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'C_C literal underscore' });
+    await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'CAC alphabetic' });
+    await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'CBC alphabetic' });
+
+    const res = await api().get('/search?q=' + encodeURIComponent('C_C'));
+    expect(res.status).toBe(200);
+    const titles = res.body.outcomes.map((o: any) => o.title);
+    expect(titles).toContain('C_C literal underscore');
+    expect(titles).not.toContain('CAC alphabetic');
+    expect(titles).not.toContain('CBC alphabetic');
+  });
+
+  it('GET /search escapes the % wildcard too', async () => {
+    await api().post('/outcomes').set('X-User-Id', USER).send({ title: '50% of users' });
+    await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'unrelated outcome' });
+
+    const res = await api().get('/search?q=' + encodeURIComponent('50%'));
+    const titles = res.body.outcomes.map((o: any) => o.title);
+    expect(titles).toContain('50% of users');
+    expect(titles).not.toContain('unrelated outcome');
+  });
 });

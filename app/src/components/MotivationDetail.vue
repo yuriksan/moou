@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../composables/useApi';
 import MotivationForm from './MotivationForm.vue';
 import { checkMismatch, type DateMismatch } from '../composables/useDateMismatch';
 import { formatHistory } from '../composables/useHistoryFormatter';
+
+const router = useRouter();
+
+/**
+ * Tag chip click → navigate to the Motivations list filtered by that tag.
+ * Mirrors the OutcomeDetail behaviour but lands on /motivations since
+ * we're inside a motivation context.
+ */
+function navigateToTag(name: string) {
+  router.push({ path: '/motivations', query: { tags: name } });
+}
 
 const props = defineProps<{
   motivationId: string;
@@ -148,8 +160,10 @@ function formatAttrValue(value: unknown): string {
               <span v-if="motivation.status === 'resolved'" class="status-badge status-completed">Resolved</span>
               <span
                 v-for="tag in motivation.tags" :key="tag.id"
-                class="tag"
+                class="tag clickable-tag"
                 :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                :title="`Show motivations tagged ${tag.name}`"
+                @click="navigateToTag(tag.name)"
               >{{ tag.emoji }} {{ tag.name }}</span>
             </div>
           </div>

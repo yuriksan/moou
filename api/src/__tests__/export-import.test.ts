@@ -77,6 +77,35 @@ describe('Export', () => {
     expect(md).toContain('Q2 Export Test');
   });
 
+  it('escapes markdown metacharacters in user-supplied content', async () => {
+    // Create an outcome whose title and description try to inject markdown.
+    const milestone = await api().post('/milestones').set('X-User-Id', USER)
+      .send({ name: 'Injection test', targetDate: '2026-12-31' });
+
+    await api().post('/outcomes').set('X-User-Id', USER)
+      .send({
+        title: 'Build *new* feature [click](http://evil.com)',
+        description: '## Pwned heading\n- pwned bullet\n[link](http://evil.com)',
+        milestoneId: milestone.body.id,
+      });
+
+    const res = await api().get('/export/timeline/markdown').expect(200);
+    const md = res.text;
+
+    // The injected link, heading, and emphasis must NOT appear unescaped.
+    // (`[click]` would render as a clickable link without escaping; with
+    // escaping, the literal `[click\]` text appears in the output.)
+    expect(md).not.toContain('[click](http://evil.com)');
+    expect(md).not.toContain('\n## Pwned heading');
+    expect(md).not.toContain('\n- pwned bullet');
+
+    // The escaped versions DO appear (proving the content is preserved,
+    // just rendered as literal text).
+    expect(md).toContain('Build \\*new\\*');
+    expect(md).toContain('\\[click\\]');
+    expect(md).toContain('\\## Pwned heading');
+  });
+
   it('Excel contains outcome and motivation data', async () => {
     const { o1, m1 } = await seedTestData();
 

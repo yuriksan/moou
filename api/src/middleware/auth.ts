@@ -72,11 +72,14 @@ async function mockAuth(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
-  // All mutations require auth
+  // All mutations require auth. We deliberately use the same generic
+  // "Authentication failed" message for both "no credentials" and "wrong
+  // credentials" so an attacker can't distinguish the two cases and probe
+  // for valid user ids.
   const userId = req.headers['x-user-id'];
   if (typeof userId !== 'string' || userId.length === 0) {
     res.status(401).json({
-      error: { code: 'UNAUTHORIZED', message: 'X-User-Id header required' },
+      error: { code: 'UNAUTHORIZED', message: 'Authentication failed' },
     });
     return;
   }

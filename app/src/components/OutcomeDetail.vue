@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../composables/useApi';
 import OutcomeForm from './OutcomeForm.vue';
 import MotivationForm from './MotivationForm.vue';
@@ -7,6 +8,17 @@ import { checkOutcomeMismatches, mismatchSummary, type DateMismatch } from '../c
 import { formatHistory } from '../composables/useHistoryFormatter';
 import ConnectDialog from './ConnectDialog.vue';
 import ExternalLinkCard from './ExternalLinkCard.vue';
+
+const router = useRouter();
+
+/**
+ * Tag chip click → navigate to the Outcomes list filtered by that tag.
+ * Same param the OutcomesView filter bar uses, so the URL is shareable
+ * and the back button works as expected.
+ */
+function navigateToTag(name: string) {
+  router.push({ path: '/outcomes', query: { tags: name } });
+}
 
 const props = defineProps<{
   outcomeId: string;
@@ -285,8 +297,10 @@ function timeAgo(dateStr: string): string {
               <span
                 v-for="tag in outcome.tags"
                 :key="tag.id"
-                class="tag"
+                class="tag clickable-tag"
                 :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                :title="`Show outcomes tagged ${tag.name}`"
+                @click="navigateToTag(tag.name)"
               >
                 {{ tag.emoji }} {{ tag.name }}
               </span>

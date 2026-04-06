@@ -16,6 +16,49 @@ function sanitizeCell(value: unknown): unknown {
   return value;
 }
 
+/**
+ * Escape Markdown metacharacters in user-supplied inline content. Without
+ * this, an outcome title like `Build *new* feature [link](http://evil)`
+ * renders as italic + a clickable link in the exported document — content
+ * the user never wrote.
+ *
+ * Conservative scope: backslash the chars that break out of a single line
+ * of inline text (`*`, `_`, `` ` ``, `[`, `]`, `(`, `)`, `|`, `<`, `>`, `!`)
+ * plus the escape char itself. We deliberately do NOT escape `.` or `+`
+ * because over-escaping inline punctuation makes the output unreadable.
+ */
+function escapeMarkdown(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.replace(/([\\`*_\[\]()<>|!])/g, '\\$1');
+}
+
+/**
+ * Escape multi-line markdown content (descriptions, notes) so a user's
+ * description starting with `## Summary` or `- bullet` can't break out of
+ * the export's own heading or list hierarchy.
+ *
+ * Order of operations matters: do inline escape FIRST (which leaves `#`,
+ * `-`, `>`, and digits alone — those only matter at line start), then
+ * prepend a backslash to leading heading / list / blockquote markers. Doing
+ * the block pass first would let the inline pass double-escape the
+ * backslash we just added.
+ */
+function escapeMarkdownBlock(value: string | null | undefined): string {
+  if (!value) return '';
+  return value
+    .split('\n')
+    .map(line => {
+      const inlineEscaped = escapeMarkdown(line);
+      // Match leading whitespace + heading (#…), blockquote (>), unordered
+      // list (-, +), or ordered list (digit.). Escape the marker character.
+      return inlineEscaped.replace(
+        /^(\s*)(#{1,6}\s|>\s|[-+]\s|\d+\.\s)/,
+        (_match, ws, marker) => ws + '\\' + marker,
+      );
+    })
+    .join('\n');
+}
+
 // ─── Shared: build the full dataset ───
 
 interface ExportRow {
@@ -300,7 +343,7 @@ router.get('/timeline/markdown', async (_req, res) => {
   let md = `# moou Timeline Export\n\n*Exported ${new Date().toISOString().split('T')[0]}*\n\n`;
 
   for (const [milestone, milestoneRows] of groups) {
-    md += `## ${milestone}\n\n`;
+    md += `## ${escapeMarkdown(milestone)}\n\n`;
 
     // Group by outcome within milestone
     const outcomeGroups = new Map<string, ExportRow[]>();
@@ -312,18 +355,18 @@ router.get('/timeline/markdown', async (_req, res) => {
     for (const [, outcomeRows] of outcomeGroups) {
       const o = outcomeRows[0]!;
       const score = Number(o.outcomePriorityScore).toLocaleString('en', { maximumFractionDigits: 0 });
-      md += `### ${o.outcomeTitle}\n`;
-      md += `**Score:** ${score} | **Effort:** ${o.outcomeEffort || '—'} | **Status:** ${o.outcomeStatus}`;
-      if (o.outcomeTags) md += ` | **Tags:** ${o.outcomeTags}`;
+      md += `### ${escapeMarkdown(o.outcomeTitle)}\n`;
+      md += `**Score:** ${score} | **Effort:** ${escapeMarkdown(o.outcomeEffort) || '—'} | **Status:** ${escapeMarkdown(o.outcomeStatus)}`;
+      if (o.outcomeTags) md += ` | **Tags:** ${escapeMarkdown(o.outcomeTags)}`;
       md += `\n\n`;
-      if (o.outcomeDescription) md += `${o.outcomeDescription}\n\n`;
+      if (o.outcomeDescription) md += `${escapeMarkdownBlock(o.outcomeDescription)}\n\n`;
 
       const motivationRows = outcomeRows.filter(r => r.motivationId);
       if (motivationRows.length > 0) {
         md += `**Motivations:**\n`;
         for (const m of motivationRows) {
           const mScore = Number(m.motivationScore || 0).toLocaleString('en', { maximumFractionDigits: 0 });
-          md += `- **${m.motivationTitle}** (${m.motivationType}, score: ${mScore})`;
+          md += `- **${escapeMarkdown(m.motivationTitle)}** (${escapeMarkdown(m.motivationType)}, score: ${mScore})`;
           if (m.motivationStatus === 'resolved') md += ` ~~resolved~~`;
           md += `\n`;
         }

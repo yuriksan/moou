@@ -14,32 +14,56 @@ const { on } = useSSE();
 
 const motivations = ref<any[]>([]);
 const total = ref(0);
+const tags = ref<any[]>([]);
 const selectedMotivationId = ref<string | null>(extractId(route.params.slugId as string));
 const showNewMotivation = ref(false);
 
 // Filters — read from URL query params
 const typeFilter = ref((route.query.type as string) || '');
 const statusFilter = ref('active');
+const tagFilter = ref<string[]>(route.query.tags ? (route.query.tags as string).split(',') : []);
 const sortBy = ref('score');
+
+// Tags actually applied to motivations — hides tags only used on outcomes
+// so the filter bar never offers a "click here for zero results" option.
+const motivationTags = computed(() =>
+  tags.value.filter((t: any) => (t.usageMotivations ?? 0) > 0)
+);
+
+function toggleTag(name: string) {
+  // Reassign rather than mutate so the watcher fires (Vue 3 ref watchers
+  // are shallow by default — push/splice would be invisible).
+  if (tagFilter.value.includes(name)) {
+    tagFilter.value = tagFilter.value.filter(n => n !== name);
+  } else {
+    tagFilter.value = [...tagFilter.value, name];
+  }
+}
 
 async function loadMotivations() {
   const params: Record<string, string> = { limit: '100' };
   if (typeFilter.value) params.type = typeFilter.value;
   if (statusFilter.value) params.status = statusFilter.value;
+  if (tagFilter.value.length) params.tags = tagFilter.value.join(',');
   const res = await api.getMotivations(params);
   motivations.value = res.data;
   total.value = res.total;
 }
 
-onMounted(loadMotivations);
+async function loadTags() {
+  tags.value = await api.getTags();
+}
+
+onMounted(() => { loadMotivations(); loadTags(); });
 for (const evt of ['motivation_created', 'motivation_updated', 'motivation_deleted', 'motivation_resolved', 'motivation_reopened', 'link_created', 'link_deleted']) {
   on(evt, () => loadMotivations());
 }
 // Sync filters and selection to URL. Filters → query, selection → path.
-watch([typeFilter, statusFilter, selectedMotivationId], () => {
+watch([typeFilter, statusFilter, tagFilter, selectedMotivationId], () => {
   const query: Record<string, string> = {};
   if (typeFilter.value) query.type = typeFilter.value;
   if (statusFilter.value && statusFilter.value !== 'active') query.status = statusFilter.value;
+  if (tagFilter.value.length) query.tags = tagFilter.value.join(',');
 
   let path = '/motivations';
   if (selectedMotivationId.value) {
@@ -50,7 +74,16 @@ watch([typeFilter, statusFilter, selectedMotivationId], () => {
 });
 
 // Filters change → reload data. Selection alone doesn't need a refetch.
-watch([typeFilter, statusFilter], () => { loadMotivations(); });
+watch([typeFilter, statusFilter, tagFilter], () => { loadMotivations(); });
+
+// External URL changes → update local state. Used by tag-link navigation
+// from detail panels (router.push to /motivations?tags=foo).
+watch(() => route.query.tags, (val) => {
+  const next = val ? (val as string).split(',') : [];
+  if (JSON.stringify(next) !== JSON.stringify(tagFilter.value)) {
+    tagFilter.value = next;
+  }
+});
 
 // External URL changes (SearchBar, browser back/forward) → update local state.
 watch(() => route.params.slugId, (slugId) => {
@@ -119,6 +152,18 @@ function pillClass(typeName: string): string {
         <button :class="['filter-btn', { active: sortBy === 'outcomes' }]" @click="sortBy = 'outcomes'">Outcomes</button>
         <button :class="['filter-btn', { active: sortBy === 'date' }]" @click="sortBy = 'date'">Date</button>
         <button class="btn btn-sm btn-primary" style="margin-left:auto" @click="showNewMotivation = true; selectedMotivationId = null">+ Motivation</button>
+      </div>
+
+      <!-- Tag filter (only tags actually applied to motivations) -->
+      <div v-if="motivationTags.length" class="filter-bar tag-filter-bar">
+        <span class="filter-label">Tags</span>
+        <span
+          v-for="tag in motivationTags" :key="tag.id"
+          :class="['tag', { 'filter-active': tagFilter.includes(tag.name) }]"
+          :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+          @click="toggleTag(tag.name)"
+        >{{ tag.emoji }} {{ tag.name }}</span>
+        <button v-if="tagFilter.length" class="btn btn-sm" @click="tagFilter = []">Clear</button>
       </div>
 
       <!-- Header -->

@@ -46,6 +46,14 @@ function navigateMotivation(m: { id: string; title: string }) {
   close();
 }
 
+// Tag click → navigate to outcomes filtered by that tag (the more common
+// "show me everything tagged X" intent). If the user wants the motivations
+// list instead, they can also click a tag chip on a motivation directly.
+function navigateTag(name: string) {
+  router.push({ path: '/outcomes', query: { tags: name } });
+  close();
+}
+
 function close() {
   showResults.value = false;
   query.value = '';
@@ -112,7 +120,11 @@ function pillClass(typeName: string): string {
 
       <div v-if="results.tags.length" class="result-group">
         <div class="result-group-title">Tags</div>
-        <div v-for="t in results.tags" :key="t.id" class="result-item result-tag">
+        <div
+          v-for="t in results.tags" :key="t.id"
+          class="result-item result-tag"
+          @click="navigateTag(t.name)"
+        >
           <span class="tag" :style="{ background: (t.colour || '#888') + '15', color: t.colour || '#888' }">
             {{ t.emoji }} {{ t.name }}
           </span>

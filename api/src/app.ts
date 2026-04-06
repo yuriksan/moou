@@ -1,6 +1,8 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { authMiddleware } from './middleware/auth.js';
 import { db } from './db/index.js';
 import { motivationTypes } from './db/schema.js';
@@ -25,13 +27,77 @@ import { dirname, join } from 'node:path';
 
 export const app = express();
 
+// ─── Rate limiting ───
+// Skip in tests so the integration suite (which fires hundreds of requests
+// from a single IP) doesn't trip the limiter. The skip predicate checks
+// NODE_ENV and the VITEST env var on every request — evaluating it once
+// at import time would be wrong because the test setup file may set
+// NODE_ENV after this module has already loaded.
+function isTestEnv(): boolean {
+  return process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+}
+
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 100,                           // 100 requests per minute per IP
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTestEnv(),
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please slow down.' } },
+});
+
+const mutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,                            // 30 mutations per minute per IP
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => isTestEnv() || req.method === 'GET',
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many mutations, please slow down.' } },
+});
+
+const recalculateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 1,                             // 1 recalculation every 5 minutes per IP
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTestEnv(),
+  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered once every 5 minutes.' } },
+});
+
 // ─── Middleware ───
+// helmet sets a sensible bundle of security headers (CSP, X-Frame-Options,
+// X-Content-Type-Options, Referrer-Policy, etc). The default CSP is too
+// strict for the SPA — Vue's runtime needs `'unsafe-inline'` styles, and
+// the avatar URLs are loaded from githubusercontent.com — so we override
+// just the directives that need it.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https://avatars.githubusercontent.com', 'https://*.githubusercontent.com'],
+      connectSrc: ["'self'", 'https://api.github.com'],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  // Cross-Origin-Embedder-Policy off so the SPA can load the GitHub avatar
+  // images without their server having to opt in to CORP.
+  crossOriginEmbedderPolicy: false,
+}));
+
 app.use('/api/import/timeline/diff', express.raw({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cors({
   origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173'],
   credentials: true,
 }));
+
+// Global limiter applies to everything; mutation limiter is mounted on /api
+// so all api routes share the tighter mutation budget.
+app.use(globalLimiter);
 
 // ─── Auth routes (before auth middleware — no auth required to login) ───
 app.use('/auth', githubAuthRouter);
@@ -69,6 +135,14 @@ app.get('/healthz', (_req, res) => {
 
 // ─── API routes — all under /api/ ───
 const api = express.Router();
+
+// Tighter limit for mutations (POST/PUT/PATCH/DELETE) — applied before any
+// route that lives on the api router.
+api.use(mutationLimiter);
+
+// Very tight limit for the expensive scoring recalculation endpoint —
+// mounted before the scoring router so it sees the request first.
+api.use('/scoring/recalculate', recalculateLimiter);
 
 api.use('/tags', tagsRouter);
 api.use('/milestones', milestonesRouter);

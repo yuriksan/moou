@@ -5,6 +5,10 @@ import { sql } from 'drizzle-orm';
 import * as schema from '../db/schema.js';
 import { seed } from '../db/seed.js';
 
+// Make sure NODE_ENV is 'test' before app.ts is imported anywhere — the
+// rate limiter middleware uses this to skip during tests.
+process.env.NODE_ENV = 'test';
+
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://moou:moou@localhost:5432/moou_test';
 
 const pool = new pg.Pool({ connectionString: TEST_DB_URL });

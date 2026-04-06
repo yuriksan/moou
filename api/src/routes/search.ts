@@ -5,6 +5,17 @@ import { sql, ilike, or } from 'drizzle-orm';
 
 const router = Router();
 
+/**
+ * Escape SQL LIKE/ILIKE wildcard metacharacters so a literal % or _ in the
+ * user's search query is treated as a literal, not as "match anything" or
+ * "match any single char". Without this, searching for "C_C" matches CAC,
+ * CBC, CCC, etc., which is surprising and (more importantly) lets the user
+ * accidentally trigger pathologically slow scans on tables full of % chars.
+ */
+function escapeLikePattern(s: string): string {
+  return s.replace(/[\\%_]/g, ch => `\\${ch}`);
+}
+
 // GET /search?q=term
 router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -13,7 +24,7 @@ router.get('/', async (req, res) => {
     return;
   }
 
-  const pattern = `%${q}%`;
+  const pattern = `%${escapeLikePattern(q)}%`;
 
   const [matchedOutcomes, matchedMotivations, matchedTags] = await Promise.all([
     db.select({

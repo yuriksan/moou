@@ -65,6 +65,9 @@ Export the timeline as Excel (one sheet per milestone, outcomes with merged cell
 ### Pluggable external systems
 Link outcomes to your ticket management system. Configure one provider per deployment (ValueEdge, GitHub, Jira, Linear). Entity types are validated against the provider. Links are just URLs — paste and go.
 
+### GitHub integration
+First-class adapter for GitHub Issues. Sign in with GitHub OAuth, then **Connect** outcomes to existing issues (search-as-you-type, see status/labels/assignee inline, sub-issue progress bars when available) or **Publish** draft outcomes as brand-new issues. Cached details refresh every 15 minutes via ETag conditional requests so polling is free against the rate limit. See [docs/GITHUB-SETUP.md](docs/GITHUB-SETUP.md) for setup, or [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) if you want to add a different backend.
+
 ## Project structure
 
 ```
@@ -81,7 +84,7 @@ moou/
 ├── shared/                 # Shared TypeScript types
 ├── docs/
 │   ├── SPEC.md             # Full product specification
-│   ├── DECISIONS.md        # Architecture decision records (13 ADRs)
+│   ├── DECISIONS.md        # Architecture decision records (15 ADRs)
 │   ├── PLAN.md             # Implementation plan with phases
 │   └── mockup.html         # Interactive HTML/CSS mockup
 ├── docker-compose.yml      # PostgreSQL + app containers
@@ -113,7 +116,7 @@ npm run test --workspace=api
 npm run test --workspace=app
 ```
 
-121 tests across both packages covering scoring functions, formula evaluation, API routes, Vue components, SSE composable, date mismatch detection, and export/import.
+252 tests across both packages — 130 backend (scoring functions, formula evaluation, API routes, GitHub adapter, export/import, input validation) and 122 frontend (Vue components, SSE composable, drag-and-drop, slug helpers, history formatter, toast system, tag filtering, useApi error handling).
 
 ## Configuration
 
@@ -123,6 +126,11 @@ npm run test --workspace=app
 | `PORT` | 3000 | API server port |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | Allowed origins for CORS |
 | `EXTERNAL_PROVIDER` | `valueedge` | Ticket system provider (`valueedge`, `github`, `jira`, `linear`) |
+| `GITHUB_CLIENT_ID` | — | OAuth App client id (required when `EXTERNAL_PROVIDER=github`) |
+| `GITHUB_CLIENT_SECRET` | — | OAuth App client secret |
+| `GITHUB_CALLBACK_URL` | `http://localhost:3000/auth/callback` | Must match the OAuth App's authorization callback URL exactly |
+| `GITHUB_REPO` | — | `owner/repo` the integration scopes search and create operations to |
+| `SESSION_SECRET` | — | At least 32 hex chars for iron-session cookie encryption (required when `EXTERNAL_PROVIDER=github`) |
 
 ## Mock users (development)
 
@@ -140,6 +148,8 @@ Switchable via the user dropdown in the top-right. Set via `X-User-Id` header on
 | Document | What's in it |
 |----------|-------------|
 | [docs/SPEC.md](docs/SPEC.md) | Domain model, scoring system, UI design, personas, v1/v2 scope |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 13 architecture decision records with rationale |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | 15 architecture decision records with rationale |
 | [docs/PLAN.md](docs/PLAN.md) | Build phases, tech stack choices, testing strategy |
+| [docs/GITHUB-SETUP.md](docs/GITHUB-SETUP.md) | User guide for setting up the GitHub integration |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Developer guide for adding a new backend adapter |
 | [docs/mockup.html](docs/mockup.html) | Interactive UI mockup (open in browser) |
