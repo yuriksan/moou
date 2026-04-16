@@ -7,3 +7,5 @@ drizzle/meta/
 *.tsbuildinfo
 .vite/
 .vscode/
+/temp-planning
+valueedge_swagger.yaml

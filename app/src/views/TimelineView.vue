@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../composables/useApi';
+import { usePersistedRef } from '../composables/usePersistedRef';
 import { useSSE } from '../composables/useSSE';
 import { extractId, buildSlugId } from '../composables/useSlug';
 import OutcomeDetail from '../components/OutcomeDetail.vue';
@@ -19,7 +20,7 @@ const importDiffs = ref<any[] | null>(null);
 const importSummary = ref<any>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedOutcomeId = ref<string | null>(extractId(route.params.slugId as string));
-const tagFilter = ref<string[]>(route.query.tags ? (route.query.tags as string).split(',') : []);
+const tagFilter = usePersistedRef<string[]>('timeline.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
 const showNewMilestone = ref(false);
 const showNewOutcome = ref(false);
 const newOutcomeMilestoneId = ref<string | null>(null);

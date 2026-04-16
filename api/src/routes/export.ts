@@ -244,7 +244,8 @@ router.get('/timeline', async (_req, res) => {
   for (const [sheetName, sheetRows] of groups) {
     if (sheetRows.length === 0 && sheetName === 'Backlog') continue;
 
-    const sheet = workbook.addWorksheet(sheetName.substring(0, 31)); // Excel 31 char limit
+    const safeSheetName = sheetName.replace(/[*?:\\/\[\]]/g, '-').substring(0, 31);
+    const sheet = workbook.addWorksheet(safeSheetName); // Excel 31 char limit, no special chars
     sheet.columns = columns;
     applyHeaderStyle(sheet.getRow(1));
 

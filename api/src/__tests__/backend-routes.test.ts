@@ -5,6 +5,7 @@ import { app } from '../app.js';
 
 // Track createItem calls so we can assert which entityType was forwarded by the route.
 const createItemCalls: Array<{ entityType: string; title: string; description?: string }> = [];
+const updateItemCalls: Array<{ entityType: string; entityId: string; changes: any }> = [];
 
 // Mock the adapter for integration tests. createItem rejects PRs (mirroring the
 // real GitHub adapter behaviour) and records calls for assertions below.
@@ -20,7 +21,7 @@ vi.mock('../providers/adapter.js', () => ({
       { entityType: 'issue', entityId: '42', title: 'Test issue', state: 'open', labels: [{ name: 'bug', color: 'd73a4a' }], assignee: { login: 'dev', avatarUrl: 'https://...' }, milestone: null, htmlUrl: 'https://github.com/org/repo/issues/42' },
     ]),
     getItemDetails: vi.fn().mockResolvedValue({
-      item: { entityType: 'issue', entityId: '42', title: 'Test issue', state: 'open', labels: [], assignee: null, milestone: null, htmlUrl: 'https://github.com/org/repo/issues/42' },
+      item: { entityType: 'issue', entityId: '42', title: 'Upstream title', description: 'Upstream desc', state: 'open', labels: [], assignee: null, milestone: null, htmlUrl: 'https://github.com/org/repo/issues/42' },
       etag: '"abc123"',
     }),
     getChildProgress: vi.fn().mockResolvedValue({ total: 3, completed: 1, inProgress: 2 }),
@@ -29,14 +30,19 @@ vi.mock('../providers/adapter.js', () => ({
       if (entityType === 'pr') throw new Error('Cannot create pull requests from moou — create an issue instead');
       return { entityId: '99', url: 'https://github.com/org/repo/issues/99' };
     }),
+    updateItem: vi.fn().mockImplementation(async (_token: string, entityType: string, entityId: string, changes: any) => {
+      updateItemCalls.push({ entityType, entityId, changes });
+    }),
   }),
 }));
 
 const USER = 'sarah-chen';
 function api() {
   return {
-    get: (path: string) => request(app).get(`/api${path}`),
+    get: (path: string) => request(app).get(`/api${path}`).set('X-User-Id', USER),
     post: (path: string) => request(app).post(`/api${path}`),
+    patch: (path: string) => request(app).patch(`/api${path}`),
+    put: (path: string) => request(app).put(`/api${path}`),
   };
 }
 
@@ -82,7 +88,7 @@ describe('Backend Routes', () => {
       expect(res.status).toBe(201);
       expect(res.body.connectionState).toBe('connected');
       expect(res.body.cachedDetails).toBeDefined();
-      expect(res.body.cachedDetails.title).toBe('Test issue');
+      expect(res.body.cachedDetails.title).toBe('Upstream title');
       expect(res.body.cachedDetails.childProgress).toEqual({ total: 3, completed: 1, inProgress: 2 });
       expect(res.body.cachedDetails.fetchedAt).toBeDefined();
     });
@@ -165,6 +171,130 @@ describe('Backend Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.link).toBeDefined();
       expect(res.body.link.cachedDetails.fetchedAt).toBeDefined();
+    });
+  });
+
+  describe('PATCH /api/outcomes/:id/primary-link', () => {
+    it('sets and clears the primary link', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'Primary test' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+
+      // Set primary link
+      const set = await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+      expect(set.status).toBe(200);
+      expect(set.body.primaryLinkId).toBe(link.body.id);
+
+      // Clear primary link
+      const clear = await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: null });
+      expect(clear.status).toBe(200);
+      expect(clear.body.primaryLinkId).toBeNull();
+    });
+
+    it('returns 400 when linkId belongs to a different outcome', async () => {
+      const o1 = await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'O1' });
+      const o2 = await api().post('/outcomes').set('X-User-Id', USER).send({ title: 'O2' });
+      const link = await api().post(`/outcomes/${o1.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+
+      const res = await api().patch(`/outcomes/${o2.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 404 when outcome does not exist', async () => {
+      const res = await api().patch('/outcomes/00000000-0000-0000-0000-000000000000/primary-link')
+        .set('X-User-Id', USER).send({ linkId: null });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('POST /api/outcomes/:id/pull-primary', () => {
+    it('pulls title from cached primary item details into the outcome', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'Old title' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+      await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+
+      const res = await api().post(`/outcomes/${outcome.body.id}/pull-primary`)
+        .set('X-User-Id', USER).send({ field: 'title' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.pulledValue).toBe('Upstream title');
+      expect(res.body.outcome.title).toBe('Upstream title');
+    });
+
+    it('returns 400 when no primary link is set', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'No primary' });
+      const res = await api().post(`/outcomes/${outcome.body.id}/pull-primary`)
+        .set('X-User-Id', USER).send({ field: 'title' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('NO_PRIMARY_LINK');
+    });
+
+    it('returns 400 for invalid field value', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'Test' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+      await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+
+      const res = await api().post(`/outcomes/${outcome.body.id}/pull-primary`)
+        .set('X-User-Id', USER).send({ field: 'labels' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('POST /api/outcomes/:id/push-primary', () => {
+    beforeEach(() => { updateItemCalls.length = 0; });
+
+    it('calls updateItem with the outcome title and refreshes the link', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'My outcome title' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+      await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+
+      const res = await api().post(`/outcomes/${outcome.body.id}/push-primary`)
+        .set('X-User-Id', USER).send({ field: 'title' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(updateItemCalls).toHaveLength(1);
+      expect(updateItemCalls[0]!.changes).toEqual({ name: 'My outcome title' });
+    });
+
+    it('returns 400 when no primary link is set', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'No primary' });
+      const res = await api().post(`/outcomes/${outcome.body.id}/push-primary`)
+        .set('X-User-Id', USER).send({ field: 'title' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('NO_PRIMARY_LINK');
+    });
+
+    it('returns 400 for invalid field value', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'Test' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+      await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+
+      const res = await api().post(`/outcomes/${outcome.body.id}/push-primary`)
+        .set('X-User-Id', USER).send({ field: 'effort' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 });

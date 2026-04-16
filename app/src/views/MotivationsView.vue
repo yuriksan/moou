@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { api } from '../composables/useApi';
+import { usePersistedRef } from '../composables/usePersistedRef';
 import { useSSE } from '../composables/useSSE';
 import { useRoute, useRouter } from 'vue-router';
 import { extractId, buildSlugId } from '../composables/useSlug';
@@ -18,11 +19,11 @@ const tags = ref<any[]>([]);
 const selectedMotivationId = ref<string | null>(extractId(route.params.slugId as string));
 const showNewMotivation = ref(false);
 
-// Filters — read from URL query params
-const typeFilter = ref((route.query.type as string) || '');
-const statusFilter = ref('active');
-const tagFilter = ref<string[]>(route.query.tags ? (route.query.tags as string).split(',') : []);
-const sortBy = ref('score');
+// Filters — persisted to localStorage, URL query params take precedence on load
+const typeFilter = usePersistedRef<string>('motivations.typeFilter', '', (route.query.type as string) || null);
+const statusFilter = usePersistedRef<string>('motivations.statusFilter', '');
+const tagFilter = usePersistedRef<string[]>('motivations.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
+const sortBy = usePersistedRef<string>('motivations.sortBy', 'score');
 
 // Tags actually applied to motivations — hides tags only used on outcomes
 // so the filter bar never offers a "click here for zero results" option.
@@ -62,7 +63,7 @@ for (const evt of ['motivation_created', 'motivation_updated', 'motivation_delet
 watch([typeFilter, statusFilter, tagFilter, selectedMotivationId], () => {
   const query: Record<string, string> = {};
   if (typeFilter.value) query.type = typeFilter.value;
-  if (statusFilter.value && statusFilter.value !== 'active') query.status = statusFilter.value;
+  if (statusFilter.value) query.status = statusFilter.value;
   if (tagFilter.value.length) query.tags = tagFilter.value.join(',');
 
   let path = '/motivations';
@@ -71,7 +72,7 @@ watch([typeFilter, statusFilter, tagFilter, selectedMotivationId], () => {
     path = `/motivations/${buildSlugId(m?.title, selectedMotivationId.value)}`;
   }
   router.replace({ path, query });
-});
+}, { immediate: true });
 
 // Filters change → reload data. Selection alone doesn't need a refetch.
 watch([typeFilter, statusFilter, tagFilter], () => { loadMotivations(); });
@@ -142,9 +143,9 @@ function pillClass(typeName: string): string {
 
         <span class="filter-sep"></span>
         <span class="filter-label">Status</span>
+        <button :class="['filter-btn', { active: statusFilter === '' }]" @click="statusFilter = ''">All</button>
         <button :class="['filter-btn', { active: statusFilter === 'active' }]" @click="statusFilter = 'active'">Active</button>
         <button :class="['filter-btn', { active: statusFilter === 'resolved' }]" @click="statusFilter = 'resolved'">Resolved</button>
-        <button :class="['filter-btn', { active: statusFilter === '' }]" @click="statusFilter = ''">All</button>
 
         <span class="filter-sep"></span>
         <span class="filter-label">Sort</span>

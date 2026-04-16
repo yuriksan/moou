@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { externalLinks, outcomes } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { externalLinks, outcomes, backendFieldConfig } from '../db/schema.js';
+import { eq, and } from 'drizzle-orm';
 import { getAdapter } from '../providers/adapter.js';
 import { refreshLink } from '../providers/refresh.js';
 import { recordHistory } from '../lib/history.js';
@@ -38,6 +38,60 @@ router.get('/search', async (req, res) => {
   } catch (err: any) {
     console.error('Backend search failed:', err);
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Backend search failed' } });
+  }
+});
+
+// GET /api/backend/create-options?entityType=story
+// Returns field descriptors (required fields + key optional) with pre-fetched allowed values
+router.get('/create-options', async (req, res) => {
+  const adapter = getAdapter();
+  if (!adapter || !adapter.getCreateOptions) {
+    res.json({ fields: [], parentEntityType: null, parentEntityTypeLabel: null });
+    return;
+  }
+
+  const entityType = String(req.query.entityType || '');
+  if (!entityType) {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'entityType is required' } });
+    return;
+  }
+
+  const token = req.accessToken;
+  if (!token) {
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    return;
+  }
+
+  try {
+    const options = await adapter.getCreateOptions(token, entityType);
+    if (!options) {
+      res.json({ fields: [], parentEntityType: null, parentEntityTypeLabel: null });
+      return;
+    }
+    // Merge DB field-config overrides: override `required` for existing fields,
+    // and append any config rows whose fieldName isn't in the metadata response.
+    const configs = await db.select().from(backendFieldConfig).where(
+      and(eq(backendFieldConfig.provider, adapter.name), eq(backendFieldConfig.entityType, entityType))
+    );
+    if (configs.length) {
+      const configMap = new Map(configs.map(c => [c.fieldName, c.required]));
+      const seen = new Set<string>();
+      const merged = options.fields.map(f => {
+        seen.add(f.name);
+        return configMap.has(f.name) ? { ...f, required: configMap.get(f.name)! } : f;
+      });
+      for (const c of configs) {
+        if (!seen.has(c.fieldName)) {
+          merged.push({ name: c.fieldName, label: c.fieldName, fieldType: 'string' as const, required: c.required });
+        }
+      }
+      res.json({ ...options, fields: merged });
+    } else {
+      res.json(options);
+    }
+  } catch (err: any) {
+    console.error('getCreateOptions failed:', err);
+    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message } });
   }
 });
 
@@ -153,8 +207,26 @@ router.post('/:id/publish', async (req, res) => {
     return;
   }
 
+  const parentEntityId: string | undefined = req.body.parentEntityId || undefined;
+  const parentEntityType: string | undefined = req.body.parentEntityType || undefined;
+
+  // Any extra fields beyond the standard ones (phase override, team, release, sprint, priority, story_points, etc.)
+  const STANDARD_KEYS = new Set(['entityType', 'parentEntityId', 'parentEntityType']);
+  const extraFields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(req.body)) {
+    if (!STANDARD_KEYS.has(k)) extraFields[k] = v;
+  }
+
   try {
-    const created = await adapter.createItem(token, entityType, outcome.title, outcome.description || undefined);
+    const created = await adapter.createItem(
+      token,
+      entityType,
+      outcome.title,
+      outcome.description || undefined,
+      parentEntityId
+        ? { parentEntityId, parentEntityType, ...extraFields }
+        : Object.keys(extraFields).length ? extraFields : undefined,
+    );
 
     // Fetch full details of the newly created item
     const details = await adapter.getItemDetails(token, entityType, created.entityId);
@@ -191,6 +263,58 @@ router.post('/:id/publish', async (req, res) => {
     console.error('Publish failed:', err);
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to create item in backend' } });
   }
+});
+
+// GET /api/backend/field-config?provider=X&entityType=Y
+// Returns all config rows for the given provider + entity type. Admin-only.
+router.get('/field-config', async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin access required' } });
+    return;
+  }
+  const provider = String(req.query.provider || '').trim();
+  const entityType = String(req.query.entityType || '').trim();
+  if (!provider || !entityType) {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'provider and entityType are required' } });
+    return;
+  }
+  const rows = await db.select().from(backendFieldConfig).where(
+    and(eq(backendFieldConfig.provider, provider), eq(backendFieldConfig.entityType, entityType))
+  );
+  res.json({ data: rows });
+});
+
+// PUT /api/backend/field-config
+// Upsert a config row. Admin-only.
+router.put('/field-config', async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin access required' } });
+    return;
+  }
+  const { provider, entityType, fieldName, required } = req.body || {};
+  if (!provider || !entityType || !fieldName || typeof required !== 'boolean') {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'provider, entityType, fieldName, and required (boolean) are required' } });
+    return;
+  }
+  const [row] = await db.insert(backendFieldConfig)
+    .values({ provider, entityType, fieldName, required })
+    .onConflictDoUpdate({
+      target: [backendFieldConfig.provider, backendFieldConfig.entityType, backendFieldConfig.fieldName],
+      set: { required, updatedAt: new Date() },
+    })
+    .returning();
+  res.json(row);
+});
+
+// DELETE /api/backend/field-config/:id
+// Remove a config row. Admin-only.
+router.delete('/field-config/:id', async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin access required' } });
+    return;
+  }
+  await db.delete(backendFieldConfig).where(eq(backendFieldConfig.id, req.params.id));
+  res.status(204).end();
 });
 
 // POST /api/external-links/:id/refresh

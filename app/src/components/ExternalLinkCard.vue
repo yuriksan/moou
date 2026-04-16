@@ -4,14 +4,18 @@ import { api } from '../composables/useApi';
 
 const props = defineProps<{
   link: any;
+  isPrimary?: boolean;
 }>();
 
 const emit = defineEmits<{
   refreshed: [];
   deleted: [];
+  setPrimary: [];
+  clearPrimary: [];
 }>();
 
 const refreshing = ref(false);
+const settingPrimary = ref(false);
 
 const details = computed(() => props.link.cachedDetails as Record<string, unknown> | null);
 const hasDetails = computed(() => !!details.value?.title);
@@ -56,18 +60,33 @@ async function disconnect() {
   await api.deleteExternalLink(props.link.id);
   emit('deleted');
 }
+
+async function togglePrimary() {
+  settingPrimary.value = true;
+  try {
+    if (props.isPrimary) {
+      emit('clearPrimary');
+    } else {
+      emit('setPrimary');
+    }
+  } finally {
+    settingPrimary.value = false;
+  }
+}
 </script>
 
 <template>
-  <div class="link-card" :class="[`link-${props.link.connectionState}`]">
+  <div class="link-card" :class="[`link-${props.link.connectionState}`, { 'link-primary': isPrimary }]">
     <!-- Rich details (when cached) -->
     <template v-if="hasDetails">
       <div class="link-head">
+        <span v-if="isPrimary" class="primary-badge" title="Primary item">★ Primary</span>
         <span :class="['state-badge', stateClass(details!.state as string)]">{{ details!.state }}</span>
         <span class="link-type font-mono">{{ props.link.entityType }}</span>
         <span class="link-id font-mono">#{{ props.link.entityId }}</span>
         <span class="connection-badge">{{ props.link.connectionState }}</span>
         <div class="link-actions">
+          <button class="btn-icon" @click.stop="togglePrimary" :disabled="settingPrimary" :title="isPrimary ? 'Remove primary' : 'Set as primary'">{{ isPrimary ? '★' : '☆' }}</button>
           <button class="btn-icon" @click.stop="refresh" :disabled="refreshing" title="Refresh">↻</button>
           <button class="btn-icon btn-icon-danger" @click.stop="disconnect" title="Disconnect">×</button>
         </div>
@@ -109,10 +128,12 @@ async function disconnect() {
     <!-- Minimal display (no cached details) -->
     <template v-else>
       <div class="link-head">
+        <span v-if="isPrimary" class="primary-badge" title="Primary item">★ Primary</span>
         <span class="link-type font-mono">{{ props.link.entityType }}</span>
         <span class="link-id font-mono">{{ props.link.entityId }}</span>
         <a v-if="props.link.url" :href="props.link.url" target="_blank" class="link-url">↗</a>
         <div class="link-actions">
+          <button class="btn-icon" @click.stop="togglePrimary" :disabled="settingPrimary" :title="isPrimary ? 'Remove primary' : 'Set as primary'">{{ isPrimary ? '★' : '☆' }}</button>
           <button class="btn-icon btn-icon-danger" @click.stop="disconnect" title="Remove">×</button>
         </div>
       </div>
@@ -128,6 +149,13 @@ async function disconnect() {
 .link-card:hover { border-color: var(--text-3); }
 .link-connected { border-left: 3px solid var(--teal); }
 .link-published { border-left: 3px solid var(--accent); }
+.link-primary { border-left: 3px solid var(--yellow, #c07a1a); background: var(--bg-1); }
+
+.primary-badge {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+  background: var(--yellow-dim, #c07a1a22); color: var(--yellow, #c07a1a);
+  white-space: nowrap;
+}
 
 .link-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .link-type { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: var(--bg-3); color: var(--text-2); text-transform: uppercase; }

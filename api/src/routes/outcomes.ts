@@ -10,6 +10,8 @@ import { flatDiff } from '../lib/diff.js';
 import { broadcast } from '../sse/emitter.js';
 import { getProvider, isValidEntityType } from '../providers.js';
 import { validateOutcomeInput } from '../lib/input-validation.js';
+import { getAdapter } from '../providers/adapter.js';
+import { refreshLink } from '../providers/refresh.js';
 
 const router = Router();
 
@@ -283,6 +285,160 @@ router.post('/:id/external-links', async (req, res) => {
 
   broadcast({ type: 'external_link_created', id: link.id, outcomeId: outcome.id });
   res.status(201).json(link);
+});
+
+// ─── Primary item ───
+
+// PATCH /outcomes/:id/primary-link
+// Set or clear the primary link for an outcome.
+router.patch('/:id/primary-link', async (req, res) => {
+  const [outcome] = await db.select().from(outcomes).where(eq(outcomes.id, req.params.id)).limit(1);
+  if (!outcome) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Outcome not found' } });
+    return;
+  }
+
+  const { linkId } = req.body as { linkId: string | null };
+
+  if (linkId !== null && linkId !== undefined) {
+    // Verify the link belongs to this outcome
+    const [link] = await db.select({ id: externalLinks.id })
+      .from(externalLinks)
+      .where(and(eq(externalLinks.id, linkId), eq(externalLinks.outcomeId, outcome.id)))
+      .limit(1);
+    if (!link) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'linkId does not belong to this outcome' } });
+      return;
+    }
+  }
+
+  const newLinkId = linkId ?? null;
+  const [updated] = await db.update(outcomes)
+    .set({ primaryLinkId: newLinkId, updatedAt: new Date() })
+    .where(eq(outcomes.id, req.params.id))
+    .returning() as any[];
+
+  await recordHistory('outcome', updated.id, 'updated', {
+    primaryLinkId: { old: outcome.primaryLinkId, new: newLinkId },
+  }, req.user!.id);
+  broadcast({ type: 'outcome_updated', id: updated.id });
+  res.json(updated);
+});
+
+// POST /outcomes/:id/pull-primary
+// Overwrite the outcome's title or description with the cached value from the primary item.
+router.post('/:id/pull-primary', async (req, res) => {
+  const [outcome] = await db.select().from(outcomes).where(eq(outcomes.id, req.params.id)).limit(1);
+  if (!outcome) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Outcome not found' } });
+    return;
+  }
+
+  if (!outcome.primaryLinkId) {
+    res.status(400).json({ error: { code: 'NO_PRIMARY_LINK', message: 'This outcome has no primary item set' } });
+    return;
+  }
+
+  const field = req.body.field as string | undefined;
+  if (field !== 'title' && field !== 'description') {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'field must be "title" or "description"' } });
+    return;
+  }
+
+  const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, outcome.primaryLinkId)).limit(1);
+  if (!link) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Primary link not found' } });
+    return;
+  }
+
+  // Refresh if cached details are missing or stale (older than 5 minutes)
+  const cached = link.cachedDetails as Record<string, unknown> | null;
+  const fetchedAt = cached?.fetchedAt as string | undefined;
+  const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime() > 5 * 60 * 1000);
+  if (isStale) {
+    const token = req.accessToken;
+    if (token) await refreshLink(link.id, token);
+    // Re-fetch updated link
+    const [refreshed] = await db.select().from(externalLinks).where(eq(externalLinks.id, link.id)).limit(1);
+    if (refreshed) Object.assign(link, refreshed);
+  }
+
+  const details = link.cachedDetails as Record<string, unknown> | null;
+  const sourceKey = field === 'title' ? 'title' : 'description';
+  const pulledValue = details?.[sourceKey] as string | undefined;
+
+  if (pulledValue === undefined || pulledValue === null) {
+    res.status(422).json({ error: { code: 'NO_VALUE', message: `Primary item has no ${field} available` } });
+    return;
+  }
+
+  const updateField = field === 'title' ? { title: pulledValue } : { description: pulledValue };
+  const [updated] = await db.update(outcomes)
+    .set({ ...updateField, updatedAt: new Date() })
+    .where(eq(outcomes.id, req.params.id))
+    .returning() as any[];
+
+  await recordHistory('outcome', updated.id, 'updated', {
+    [field]: { old: field === 'title' ? outcome.title : outcome.description, new: pulledValue },
+  }, req.user!.id);
+  broadcast({ type: 'outcome_updated', id: updated.id });
+  res.json({ outcome: updated, pulledValue });
+});
+
+// POST /outcomes/:id/push-primary
+// Write the outcome's title or description back to the primary backend item.
+router.post('/:id/push-primary', async (req, res) => {
+  const [outcome] = await db.select().from(outcomes).where(eq(outcomes.id, req.params.id)).limit(1);
+  if (!outcome) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Outcome not found' } });
+    return;
+  }
+
+  if (!outcome.primaryLinkId) {
+    res.status(400).json({ error: { code: 'NO_PRIMARY_LINK', message: 'This outcome has no primary item set' } });
+    return;
+  }
+
+  const field = req.body.field as string | undefined;
+  if (field !== 'title' && field !== 'description') {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'field must be "title" or "description"' } });
+    return;
+  }
+
+  const adapter = getAdapter();
+  if (!adapter?.updateItem) {
+    res.status(400).json({ error: { code: 'NO_ADAPTER', message: 'The configured provider does not support writing back to items' } });
+    return;
+  }
+
+  const token = req.accessToken;
+  if (!token) {
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    return;
+  }
+
+  const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, outcome.primaryLinkId)).limit(1);
+  if (!link) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Primary link not found' } });
+    return;
+  }
+
+  const changes = field === 'title'
+    ? { name: outcome.title }
+    : { description: outcome.description ?? '' };
+
+  try {
+    await adapter.updateItem(token, link.entityType, link.entityId, changes);
+  } catch (err: any) {
+    console.error('push-primary updateItem failed:', err);
+    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to update backend item' } });
+    return;
+  }
+
+  // Refresh cached details so the UI reflects the change
+  await refreshLink(link.id, token);
+
+  res.json({ ok: true });
 });
 
 export default router;

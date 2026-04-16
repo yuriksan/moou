@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../composables/useApi';
+import { usePersistedRef } from '../composables/usePersistedRef';
 import { useSSE } from '../composables/useSSE';
 import { extractId, buildSlugId } from '../composables/useSlug';
 import OutcomeDetail from '../components/OutcomeDetail.vue';
@@ -20,10 +21,10 @@ const total = ref(0);
 // We always store the bare UUID locally; the slug is just decoration in the URL.
 const selectedOutcomeId = ref<string | null>(extractId(route.params.slugId as string));
 
-// Filters — read from URL query params (filters stay in query, selection moves to path)
-const statusFilter = ref<string>((route.query.status as string) || 'active,approved');
-const tagFilter = ref<string[]>(route.query.tags ? (route.query.tags as string).split(',') : []);
-const search = ref((route.query.q as string) || '');
+// Filters — persisted to localStorage, URL query params take precedence on load
+const statusFilter = usePersistedRef<string>('outcomes.statusFilter', '', (route.query.status as string) || null);
+const tagFilter = usePersistedRef<string[]>('outcomes.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
+const search = usePersistedRef<string>('outcomes.search', '', (route.query.q as string) || null);
 
 async function loadOutcomes() {
   const params: Record<string, string> = { limit: '100' };
@@ -47,7 +48,7 @@ for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'lin
 // Filters live in the query string; selection lives in the path as `/outcomes/{slug}-{uuid}`.
 watch([statusFilter, tagFilter, search, selectedOutcomeId], () => {
   const query: Record<string, string> = {};
-  if (statusFilter.value && statusFilter.value !== 'active,approved') query.status = statusFilter.value;
+  if (statusFilter.value) query.status = statusFilter.value;
   if (tagFilter.value.length) query.tags = tagFilter.value.join(',');
   if (search.value) query.q = search.value;
 
@@ -57,7 +58,7 @@ watch([statusFilter, tagFilter, search, selectedOutcomeId], () => {
     path = `/outcomes/${buildSlugId(o?.title, selectedOutcomeId.value)}`;
   }
   router.replace({ path, query });
-});
+}, { immediate: true });
 
 // Filters change → reload data. Selection alone doesn't need a refetch.
 watch([statusFilter, tagFilter], () => { loadOutcomes(); });
@@ -111,11 +112,11 @@ const summaryStats = computed(() => {
 });
 
 const statusOptions = [
+  { value: '', label: 'All' },
   { value: 'active,approved', label: 'Active' },
   { value: 'draft', label: 'Draft' },
   { value: 'deferred', label: 'Deferred' },
   { value: 'completed', label: 'Completed' },
-  { value: '', label: 'All' },
 ];
 
 function toggleTag(name: string) {

@@ -8,7 +8,32 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            // Ensure Set-Cookie is forwarded as-is (Vite can strip it)
+            const setCookie = proxyRes.headers['set-cookie'];
+            if (setCookie) {
+              proxyRes.headers['set-cookie'] = setCookie.map(c =>
+                c.replace(/;\s*SameSite=[^;]*/i, '').replace(/;\s*Secure/i, ''),
+              );
+            }
+          });
+        },
+      },
+      '/auth': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            const setCookie = proxyRes.headers['set-cookie'];
+            if (setCookie) {
+              proxyRes.headers['set-cookie'] = setCookie.map(c =>
+                c.replace(/;\s*SameSite=[^;]*/i, '').replace(/;\s*Secure/i, ''),
+              );
+            }
+          });
+        },
       },
     },
   },

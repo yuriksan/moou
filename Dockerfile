@@ -40,6 +40,7 @@ RUN npm install tsx --save
 # Copy API source
 COPY api/src ./api/src
 COPY api/tsconfig.json ./api/
+COPY api/drizzle ./drizzle
 COPY shared/src ./shared/src
 COPY shared/tsconfig.json ./shared/
 # Copy built frontend

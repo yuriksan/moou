@@ -7,7 +7,7 @@ import ExcelJS from 'exceljs';
 const USER = 'sarah-chen';
 function api() {
   return {
-    get: (path: string) => request(app).get(`/api${path}`),
+    get: (path: string) => request(app).get(`/api${path}`).set('X-User-Id', USER),
     post: (path: string) => request(app).post(`/api${path}`),
     put: (path: string) => request(app).put(`/api${path}`),
     patch: (path: string) => request(app).patch(`/api${path}`),

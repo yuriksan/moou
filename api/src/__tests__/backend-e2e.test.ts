@@ -93,7 +93,7 @@ vi.mock('../providers/adapter.js', () => ({
 const USER = 'sarah-chen';
 function api() {
   return {
-    get: (path: string) => request(app).get(`/api${path}`),
+    get: (path: string) => request(app).get(`/api${path}`).set('X-User-Id', USER),
     post: (path: string) => request(app).post(`/api${path}`),
   };
 }

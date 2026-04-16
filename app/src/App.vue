@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { getCurrentUser, setCurrentUser, api } from './composables/useApi';
+import { api } from './composables/useApi';
 import Walkthrough from './components/Walkthrough.vue';
 import SearchBar from './components/SearchBar.vue';
 import Toast from './components/Toast.vue';
@@ -9,37 +9,43 @@ import Toast from './components/Toast.vue';
 const router = useRouter();
 const route = useRoute();
 
-const MOCK_USERS = [
-  { id: 'sarah-chen', name: 'Sarah Chen', initials: 'SC' },
-  { id: 'james-obi', name: 'James Obi', initials: 'JO' },
-  { id: 'dev-patel', name: 'Dev Patel', initials: 'DP' },
-  { id: 'anna-mueller', name: 'Anna Müller', initials: 'AM' },
-];
-
-const currentUserId = ref(getCurrentUser());
 const showUserMenu = ref(false);
 const showWalkthrough = ref(false);
+const showAdminMenu = ref(false);
 const authenticatedUser = ref<any>(null);
-const isGitHubAuth = ref(false);
 const authChecked = ref(false);
 
 onMounted(async () => {
-  // Try to get authenticated user from session
+  // Don't check auth on the login page itself
+  if (route.path === '/login') {
+    authChecked.value = true;
+    return;
+  }
+  await fetchMe();
+});
+
+// When the user logs in and is redirected away from /login, load their profile
+watch(() => route.path, async (newPath, oldPath) => {
+  if (oldPath === '/login' && newPath !== '/login') {
+    await fetchMe();
+  }
+});
+
+async function fetchMe() {
   try {
     const me = await api.getMe();
     authenticatedUser.value = me;
-    isGitHubAuth.value = me.provider === 'github';
-    // Set the user ID for API calls
-    if (me.id) setCurrentUser(me.id);
   } catch {
-    // Not authenticated — that's fine in mock mode
+    router.push('/login');
+    authChecked.value = true;
+    return;
   }
   authChecked.value = true;
 
   if (!localStorage.getItem('moou-walkthrough-seen')) {
     showWalkthrough.value = true;
   }
-});
+}
 
 function closeWalkthrough() {
   showWalkthrough.value = false;
@@ -47,18 +53,15 @@ function closeWalkthrough() {
 }
 
 async function logout() {
-  await api.logout();
+  const provider = authenticatedUser.value?.provider || '';
+  if (provider === 'valueedge') {
+    await fetch('/auth/valueedge/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+  } else {
+    await api.logout();
+  }
   authenticatedUser.value = null;
-  window.location.href = '/auth/github';
+  router.push('/login');
 }
-
-function switchUser(userId: string) {
-  setCurrentUser(userId);
-  currentUserId.value = userId;
-  showUserMenu.value = false;
-}
-
-const currentUser = () => MOCK_USERS.find(u => u.id === currentUserId.value) || MOCK_USERS[0]!;
 
 const navItems = [
   { name: 'Timeline', route: '/timeline' },
@@ -68,6 +71,11 @@ const navItems = [
 </script>
 
 <template>
+  <template v-if="route.path === '/login'">
+    <router-view />
+    <Toast />
+  </template>
+  <template v-else>
   <header class="topbar">
     <div class="logo font-display" @click="router.push('/timeline')">
       <svg class="logo-cow" viewBox="0 0 32 32" width="24" height="24">
@@ -97,33 +105,20 @@ const navItems = [
 
     <div class="topbar-right">
       <SearchBar />
-      <button class="help-btn" @click="router.push('/admin/tags')" title="Tag admin">⚙</button>
+      <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙
+        <div v-if="showAdminMenu" class="admin-menu" @click.stop>
+          <div class="admin-menu-item" @click="router.push('/admin/tags'); showAdminMenu = false">Tags</div>
+          <div class="admin-menu-item" @click="router.push('/admin/field-config'); showAdminMenu = false">Field Requirements</div>
+        </div>
+      </button>
       <button class="help-btn" @click="showWalkthrough = true" title="Help & walkthrough">?</button>
-      <!-- GitHub authenticated user -->
-      <div v-if="authenticatedUser?.provider === 'github'" class="user-switcher" @click="showUserMenu = !showUserMenu">
+      <!-- Authenticated user (GitHub or ValueEdge) -->
+      <div v-if="authenticatedUser" class="user-switcher" @click="showUserMenu = !showUserMenu">
         <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" />
         <div v-else class="avatar">{{ authenticatedUser.initials }}</div>
         <span class="user-name">{{ authenticatedUser.name }}</span>
         <div v-if="showUserMenu" class="user-menu">
           <div class="user-menu-item" @click.stop="logout">Sign out</div>
-        </div>
-      </div>
-
-      <!-- Mock user switcher (dev mode) -->
-      <div v-else class="user-switcher" @click="showUserMenu = !showUserMenu">
-        <div class="avatar">{{ currentUser().initials }}</div>
-        <span class="user-name">{{ currentUser().name }}</span>
-        <div v-if="showUserMenu" class="user-menu">
-          <div
-            v-for="user in MOCK_USERS"
-            :key="user.id"
-            class="user-menu-item"
-            :class="{ active: user.id === currentUserId }"
-            @click.stop="switchUser(user.id)"
-          >
-            <div class="avatar-sm">{{ user.initials }}</div>
-            {{ user.name }}
-          </div>
         </div>
       </div>
     </div>
@@ -136,6 +131,7 @@ const navItems = [
   <Walkthrough v-if="showWalkthrough" @close="closeWalkthrough" />
 
   <Toast />
+  </template>
 </template>
 
 <style scoped>
@@ -210,8 +206,30 @@ const navItems = [
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 .help-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.admin-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  min-width: 160px;
+  z-index: 100;
+  overflow: hidden;
+}
+.admin-menu-item {
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.admin-menu-item:hover { background: var(--bg-3); }
 
 .user-switcher {
   display: flex;
