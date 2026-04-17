@@ -199,9 +199,9 @@ function formatAttrValue(value: unknown): string {
         <h3 class="section-title">Score</h3>
         <div class="score-display">
           <span class="score-value font-display">{{ Number(motivation.score).toLocaleString('en', { maximumFractionDigits: 0 }) }}</span>
-          <span class="score-label score-info-toggle" @click="showScoreInfo = !showScoreInfo">
+          <button type="button" class="score-label score-info-toggle" @click="showScoreInfo = !showScoreInfo">
             {{ showScoreInfo ? 'hide breakdown' : 'how is this calculated?' }}
-          </span>
+          </button>
         </div>
         <div v-if="showScoreInfo" class="score-info">
           <p v-if="motivation.scoringDescription" class="score-info-desc">{{ motivation.scoringDescription }}</p>
@@ -320,7 +320,7 @@ function formatAttrValue(value: unknown): string {
 .score-display { display: flex; align-items: baseline; gap: 8px; }
 .score-value { font-size: 24px; font-weight: 800; color: var(--accent); }
 .score-label { font-size: 12px; color: var(--text-3); }
-.score-info-toggle { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
+.score-info-toggle { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; background: none; border: none; padding: 0; font: inherit; }
 .score-info-toggle:hover { color: var(--accent); }
 .score-info { margin-top: 8px; padding: 10px 12px; background: var(--bg-2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); }
 .score-info-desc { font-size: 12px; color: var(--text-1); margin: 0 0 6px; line-height: 1.5; }
