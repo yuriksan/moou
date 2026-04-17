@@ -40,6 +40,7 @@ beforeAll(async () => {
       description TEXT,
       attribute_schema JSONB NOT NULL,
       scoring_formula TEXT NOT NULL,
+      scoring_description TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );

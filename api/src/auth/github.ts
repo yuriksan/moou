@@ -15,9 +15,12 @@ const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost
 router.get('/github', async (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
 
-  // Store state in session for CSRF validation
+  // Store state and returnTo origin in session for CSRF validation + redirect
   const session = await getSession(req, res);
   (session as any).oauthState = state;
+  if (typeof req.query.returnTo === 'string' && req.query.returnTo) {
+    (session as any).returnTo = req.query.returnTo;
+  }
   await session.save();
 
   const params = new URLSearchParams({
@@ -124,8 +127,22 @@ router.get('/callback', async (req, res) => {
   };
   await session.save();
 
-  // Redirect to the app
-  res.redirect('/');
+  // Redirect to the frontend origin (handles dev proxy on different port)
+  let returnTo = (session as any).returnTo || '/';
+  delete (session as any).returnTo;
+  await session.save();
+
+  // Prevent open redirect: only allow origins in CORS_ORIGINS or relative paths
+  if (returnTo !== '/') {
+    try {
+      const url = new URL(returnTo);
+      const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (!allowed.includes(url.origin)) returnTo = '/';
+    } catch {
+      // Not a valid URL — treat as relative path, keep it
+    }
+  }
+  res.redirect(returnTo);
 });
 
 // POST /auth/logout

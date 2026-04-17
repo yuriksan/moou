@@ -204,7 +204,7 @@ function pillClass(typeName: string): string {
             <div class="row-subtitle" v-if="m.notes">{{ m.notes }}</div>
           </div>
           <span :class="['col-type motivation-pill', pillClass(m.typeName)]">{{ m.typeName }}</span>
-          <span class="col-score font-mono" :class="Number(m.score) > 1000 ? 'score-high' : Number(m.score) > 100 ? 'score-mid' : 'score-low'">
+          <span class="col-score font-mono" :class="Number(m.score) > 1000 ? 'score-high' : Number(m.score) > 100 ? 'score-mid' : 'score-low'" :title="m.scoringDescription || ''">
             {{ Number(m.score).toLocaleString('en', { maximumFractionDigits: 0 }) }}
           </span>
           <span class="col-outcomes font-mono">{{ m.linkedOutcomeCount }}</span>

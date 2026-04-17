@@ -1,6 +1,6 @@
 import { db } from './index.js';
 import { users, motivationTypes } from './schema.js';
-import { count } from 'drizzle-orm';
+import { count, eq, isNull, and } from 'drizzle-orm';
 
 // ─── Mock Users ───
 const MOCK_USERS = [
@@ -32,6 +32,7 @@ const MOTIVATION_TYPES = [
       additionalProperties: false,
     },
     scoringFormula: '(k(revenue_at_risk) * date_urgency(target_date) * confidence) + (k(revenue_opportunity) * strategic_weight(strategic_flag) * confidence)',
+    scoringDescription: 'Revenue at risk (÷1000) × deadline urgency × confidence, plus revenue opportunity (÷1000) × strategic weight × confidence',
   },
   {
     name: 'Compliance',
@@ -49,6 +50,7 @@ const MOTIVATION_TYPES = [
       additionalProperties: false,
     },
     scoringFormula: 'k(legal_exposure) * date_urgency(mandate_deadline) * severity_weight(penalty_severity) * confidence',
+    scoringDescription: 'Legal exposure (÷1000) × deadline urgency × penalty severity × confidence',
   },
   {
     name: 'Tech Debt',
@@ -66,6 +68,7 @@ const MOTIVATION_TYPES = [
       additionalProperties: false,
     },
     scoringFormula: '(incident_frequency * blast_radius_weight(blast_radius)) + (support_hours_monthly * 10) + severity_weight(performance_impact) * severity_weight(architectural_risk)',
+    scoringDescription: 'Incident frequency × blast radius, plus support hours × 10, plus performance impact × architectural risk',
   },
   {
     name: 'Internal Mandate',
@@ -83,6 +86,7 @@ const MOTIVATION_TYPES = [
       additionalProperties: false,
     },
     scoringFormula: 'override_weight(priority_override) * date_urgency(target_date)',
+    scoringDescription: 'Priority override weight × deadline urgency',
   },
   {
     name: 'Competitive Gap',
@@ -100,6 +104,7 @@ const MOTIVATION_TYPES = [
       additionalProperties: false,
     },
     scoringFormula: 'deals_lost * gap_weight(gap_severity) * confidence',
+    scoringDescription: 'Deals lost × gap severity × confidence',
   },
 ];
 
@@ -107,6 +112,14 @@ export async function seed() {
   // Check if already seeded
   const [typeCount] = await db.select({ value: count() }).from(motivationTypes);
   if (typeCount && typeCount.value > 0) {
+    // Backfill scoring descriptions for existing DBs
+    for (const mt of MOTIVATION_TYPES) {
+      if (mt.scoringDescription) {
+        await db.update(motivationTypes)
+          .set({ scoringDescription: mt.scoringDescription })
+          .where(and(eq(motivationTypes.name, mt.name), isNull(motivationTypes.scoringDescription)));
+      }
+    }
     console.log('Database already seeded, skipping.');
     return;
   }

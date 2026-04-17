@@ -125,7 +125,7 @@ function startPolling() {
 
 // ─── GitHub OAuth redirect ─────────────────────────────────────────────────
 function signInGitHub() {
-  window.location.href = `${AUTH_BASE}/github`;
+  window.location.href = `${AUTH_BASE}/github?returnTo=${encodeURIComponent(window.location.origin)}`;
 }
 </script>
 

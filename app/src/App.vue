@@ -16,8 +16,18 @@ const authenticatedUser = ref<any>(null);
 const authChecked = ref(false);
 
 onMounted(async () => {
-  // Don't check auth on the login page itself
   if (route.path === '/login') {
+    // On the login page, check if already authenticated (e.g. stale tab after
+    // OAuth completed in another context). If so, redirect to the app.
+    try {
+      const me = await api.getMe();
+      authenticatedUser.value = me;
+      authChecked.value = true;
+      router.push('/timeline');
+      return;
+    } catch {
+      // Not authenticated — stay on login
+    }
     authChecked.value = true;
     return;
   }
