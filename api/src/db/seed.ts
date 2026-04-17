@@ -114,11 +114,9 @@ export async function seed() {
   if (typeCount && typeCount.value > 0) {
     // Backfill scoring descriptions for existing DBs
     for (const mt of MOTIVATION_TYPES) {
-      if (mt.scoringDescription) {
-        await db.update(motivationTypes)
-          .set({ scoringDescription: mt.scoringDescription })
-          .where(and(eq(motivationTypes.name, mt.name), isNull(motivationTypes.scoringDescription)));
-      }
+      await db.update(motivationTypes)
+        .set({ scoringDescription: mt.scoringDescription })
+        .where(and(eq(motivationTypes.name, mt.name), isNull(motivationTypes.scoringDescription)));
     }
     console.log('Database already seeded, skipping.');
     return;

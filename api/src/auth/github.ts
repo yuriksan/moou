@@ -17,9 +17,10 @@ router.get('/github', async (req, res) => {
 
   // Store state and returnTo origin in session for CSRF validation + redirect
   const session = await getSession(req, res);
-  (session as any).oauthState = state;
-  if (typeof req.query.returnTo === 'string' && req.query.returnTo) {
-    (session as any).returnTo = req.query.returnTo;
+  session.oauthState = state;
+  const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '';
+  if (returnTo && returnTo.length < 2048) {
+    session.returnTo = returnTo;
   }
   await session.save();
 
@@ -44,12 +45,11 @@ router.get('/callback', async (req, res) => {
 
   // Validate CSRF state
   const session = await getSession(req, res);
-  const expectedState = (session as any).oauthState;
-  if (!state || state !== expectedState) {
+  if (!state || state !== session.oauthState) {
     res.status(403).send('Invalid state parameter (CSRF check failed)');
     return;
   }
-  delete (session as any).oauthState;
+  delete session.oauthState;
 
   // Exchange code for access token
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -125,24 +125,26 @@ router.get('/callback', async (req, res) => {
     initials,
     avatarUrl: profile.avatar_url,
   };
+
+  // Read and clear returnTo before saving (single save, not two)
+  let redirectTo = session.returnTo || '/';
+  delete session.returnTo;
   await session.save();
 
-  // Redirect to the frontend origin (handles dev proxy on different port)
-  let returnTo = (session as any).returnTo || '/';
-  delete (session as any).returnTo;
-  await session.save();
-
-  // Prevent open redirect: only allow origins in CORS_ORIGINS or relative paths
-  if (returnTo !== '/') {
+  // Prevent open redirect: only allow origins listed in CORS_ORIGINS
+  if (redirectTo !== '/') {
     try {
-      const url = new URL(returnTo);
+      const url = new URL(redirectTo);
       const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-      if (!allowed.includes(url.origin)) returnTo = '/';
+      if (!allowed.includes(url.origin)) redirectTo = '/';
     } catch {
-      // Not a valid URL — treat as relative path, keep it
+      // Not a valid absolute URL — only allow paths starting with a single slash
+      if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
+        redirectTo = '/';
+      }
     }
   }
-  res.redirect(returnTo);
+  res.redirect(redirectTo);
 });
 
 // POST /auth/logout

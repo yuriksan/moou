@@ -11,6 +11,8 @@ export interface SessionData {
     initials: string;
     avatarUrl?: string;
   };
+  oauthState?: string;
+  returnTo?: string;
 }
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me-in-production-at-least-32-chars';
