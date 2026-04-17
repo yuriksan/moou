@@ -49,7 +49,7 @@ const globalLimiter = rateLimit({
 
 const mutationLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 30,                            // 30 mutations per minute per IP
+  limit: 300,                           // 300 mutations per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: (req) => isTestEnv() || req.method === 'GET',

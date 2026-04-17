@@ -55,7 +55,7 @@ router.get('/', async (req, res) => {
     conditions.push(inArray(outcomes.status, statuses));
   }
 
-  // Tag filtering (AND logic)
+  // Tag filtering (AND logic) — matches direct outcome tags OR tags from linked motivations
   if (req.query.tags) {
     const tagNames = (req.query.tags as string).split(',').map(t => t.toLowerCase());
     const tagRows = await db.select({ id: tags.id }).from(tags)
@@ -63,14 +63,25 @@ router.get('/', async (req, res) => {
     const tagIdList = tagRows.map(t => t.id);
 
     if (tagIdList.length > 0) {
-      const matchingOutcomes = await db
-        .select({ outcomeId: outcomeTags.outcomeId })
-        .from(outcomeTags)
-        .where(inArray(outcomeTags.tagId, tagIdList))
-        .groupBy(outcomeTags.outcomeId)
-        .having(sql`count(distinct ${outcomeTags.tagId}) = ${tagIdList.length}`);
+      // Outcome has each required tag via outcome_tags OR via a linked motivation's tags
+      const tagIdSqlValues = sql.join(tagIdList.map(id => sql`${id}::uuid`), sql`, `);
+      const matchingOutcomes = await db.execute<{ outcome_id: string }>(sql`
+        SELECT o.id AS outcome_id
+        FROM outcomes o
+        WHERE (
+          SELECT count(DISTINCT req.tag_id)
+          FROM unnest(ARRAY[${tagIdSqlValues}]) AS req(tag_id)
+          WHERE EXISTS (
+            SELECT 1 FROM outcome_tags ot WHERE ot.outcome_id = o.id AND ot.tag_id = req.tag_id
+          ) OR EXISTS (
+            SELECT 1 FROM outcome_motivations om
+            JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
+            WHERE om.outcome_id = o.id AND mt.tag_id = req.tag_id
+          )
+        ) = ${tagIdList.length}
+      `);
 
-      const outcomeIds = matchingOutcomes.map(r => r.outcomeId);
+      const outcomeIds = matchingOutcomes.rows.map((r: any) => r.outcome_id);
       if (outcomeIds.length > 0) {
         conditions.push(inArray(outcomes.id, outcomeIds));
       } else {
@@ -110,6 +121,8 @@ router.get('/', async (req, res) => {
     status: outcomes.status,
     pinned: outcomes.pinned,
     priorityScore: outcomes.priorityScore,
+    primaryLinkId: outcomes.primaryLinkId,
+    primaryLinkUrl: sql<string | null>`(SELECT url FROM external_links el WHERE el.id = outcomes.primary_link_id)`,
     createdBy: outcomes.createdBy,
     createdAt: outcomes.createdAt,
     updatedAt: outcomes.updatedAt,
@@ -120,15 +133,21 @@ router.get('/', async (req, res) => {
       SELECT m.target_date FROM milestones m WHERE m.id = outcomes.milestone_id
     )`,
     earliestMotivationDate: sql<string | null>`(
-      SELECT min(d) FROM (
-        SELECT (mot.attributes->>'target_date')::date AS d
-        FROM outcome_motivations om JOIN motivations mot ON mot.id = om.motivation_id
-        WHERE om.outcome_id = outcomes.id AND mot.status = 'active' AND mot.attributes->>'target_date' IS NOT NULL
-        UNION ALL
-        SELECT (mot.attributes->>'mandate_deadline')::date AS d
-        FROM outcome_motivations om JOIN motivations mot ON mot.id = om.motivation_id
-        WHERE om.outcome_id = outcomes.id AND mot.status = 'active' AND mot.attributes->>'mandate_deadline' IS NOT NULL
-      ) dates
+      SELECT min(mot.target_date)
+      FROM outcome_motivations om JOIN motivations mot ON mot.id = om.motivation_id
+      WHERE om.outcome_id = outcomes.id AND mot.status = 'active' AND mot.target_date IS NOT NULL
+    )`,
+    tags: sql<{ id: string; name: string; emoji: string | null; colour: string | null }[]>`coalesce(
+      (SELECT json_agg(jsonb_build_object('id', tg.id::text, 'name', tg.name, 'emoji', tg.emoji, 'colour', tg.colour))
+       FROM (
+         SELECT t.id, t.name, t.emoji, t.colour FROM outcome_tags ot JOIN tags t ON t.id = ot.tag_id WHERE ot.outcome_id = outcomes.id
+         UNION
+         SELECT t.id, t.name, t.emoji, t.colour FROM outcome_motivations om
+           JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
+           JOIN tags t ON t.id = mt.tag_id
+           WHERE om.outcome_id = outcomes.id
+       ) tg),
+      '[]'::json
     )`,
   }).from(outcomes)
     .where(where)
@@ -164,17 +183,34 @@ router.get('/:id', async (req, res) => {
     .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id))
     .where(eq(outcomeMotivations.outcomeId, outcome.id));
 
-  // Tags
-  const oTags = await db.select({ id: tags.id, name: tags.name, emoji: tags.emoji, colour: tags.colour })
-    .from(outcomeTags)
-    .innerJoin(tags, eq(outcomeTags.tagId, tags.id))
-    .where(eq(outcomeTags.outcomeId, outcome.id));
+  // Tags — union of directly-applied tags and tags from linked motivations
+  // Each tag includes `inherited: true` when it comes only from a motivation (not directly applied)
+  const oTags = await db.execute<{ id: string; name: string; emoji: string | null; colour: string | null; inherited: boolean }>(sql`
+    SELECT tg.id, tg.name, tg.emoji, tg.colour,
+      NOT EXISTS (
+        SELECT 1 FROM outcome_tags ot WHERE ot.outcome_id = ${outcome.id} AND ot.tag_id = tg.id
+      ) AS inherited
+    FROM (
+      SELECT t.id, t.name, t.emoji, t.colour
+        FROM outcome_tags ot JOIN tags t ON t.id = ot.tag_id WHERE ot.outcome_id = ${outcome.id}
+      UNION
+      SELECT t.id, t.name, t.emoji, t.colour
+        FROM outcome_motivations om
+          JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
+          JOIN tags t ON t.id = mt.tag_id
+        WHERE om.outcome_id = ${outcome.id}
+    ) tg
+  `);
+  const oTagList = oTags.rows;
+
+  // ownTagIds — IDs of tags directly assigned to this outcome (not inherited)
+  const ownTagIds = oTagList.filter(t => !t.inherited).map(t => t.id);
 
   // External links
   const links = await db.select().from(externalLinks)
     .where(eq(externalLinks.outcomeId, outcome.id));
 
-  res.json({ ...outcome, motivations: linkedMotivations, tags: oTags, externalLinks: links });
+  res.json({ ...outcome, motivations: linkedMotivations, tags: oTagList, ownTagIds, externalLinks: links });
 });
 
 // PUT /outcomes/:id

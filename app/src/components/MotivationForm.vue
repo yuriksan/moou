@@ -6,6 +6,7 @@ import TagPicker from './TagPicker.vue';
 const props = defineProps<{
   motivation?: any;
   linkToOutcomeId?: string;
+  hideActions?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 const motivationTypes = ref<any[]>([]);
 const saving = ref(false);
 const error = ref('');
+const fieldErrors = ref<Record<string, string>>({});
 const showAttributes = ref(false);
 
 const form = ref({
@@ -52,6 +54,9 @@ const attributeFields = computed(() => {
     label: key.replace(/_/g, ' '),
     type: schema.type,
     enum: schema.enum,
+    minimum: schema.minimum,
+    maximum: schema.maximum,
+    format: schema.format,
   }));
 });
 
@@ -62,16 +67,27 @@ watch(() => form.value.typeId, () => {
 
 function getAttrInputType(field: any): string {
   if (field.enum) return 'select';
-  if (field.type === 'number') return 'number';
   if (field.type === 'boolean') return 'checkbox';
-  if (field.key.includes('date')) return 'date';
+  if (field.format === 'date' || field.key.includes('date')) return 'date';
+  // Use range slider for numbers where both min and max are defined and span ≤ 1
+  if (field.type === 'number' && field.minimum !== undefined && field.maximum !== undefined && (field.maximum - field.minimum) <= 1) return 'range';
+  if (field.type === 'number') return 'number';
   return 'text';
+}
+
+function constraintHint(field: any): string {
+  if (field.type !== 'number') return '';
+  if (field.minimum !== undefined && field.maximum !== undefined) return `${field.minimum} – ${field.maximum}`;
+  if (field.minimum !== undefined) return `min ${field.minimum}`;
+  if (field.maximum !== undefined) return `max ${field.maximum}`;
+  return '';
 }
 
 async function save() {
   if (!form.value.title.trim()) { error.value = 'Title is required'; return; }
   if (!form.value.typeId) { error.value = 'Type is required'; return; }
   error.value = '';
+  fieldErrors.value = {};
   saving.value = true;
 
   try {
@@ -98,10 +114,21 @@ async function save() {
     emit('saved', result);
   } catch (err: any) {
     error.value = err.detail?.message || err.message || 'Failed to save';
+    // Populate per-field errors from API validation details
+    const details = err.detail?.details;
+    if (Array.isArray(details)) {
+      const fe: Record<string, string> = {};
+      for (const d of details) {
+        if (d.field) fe[d.field] = d.message;
+      }
+      fieldErrors.value = fe;
+    }
   } finally {
     saving.value = false;
   }
 }
+
+defineExpose({ save });
 
 function pillClass(typeName: string): string {
   const map: Record<string, string> = {
@@ -117,7 +144,7 @@ function pillClass(typeName: string): string {
 
 <template>
   <div class="motivation-form">
-    <h3 class="form-title font-display">{{ isEdit ? 'Edit Motivation' : 'New Motivation' }}</h3>
+    <h3 v-if="!hideActions" class="form-title font-display">{{ isEdit ? 'Edit Motivation' : 'New Motivation' }}</h3>
 
     <div v-if="error" class="form-error">{{ error }}</div>
 
@@ -150,15 +177,32 @@ function pillClass(typeName: string): string {
       <div class="attributes-section">
         <h4 class="section-label">{{ selectedType.name }} Details</h4>
         <div v-for="field in attributeFields" :key="field.key" class="field">
-          <label class="label">{{ field.label }}</label>
+          <label class="label">
+            {{ field.label }}
+            <span v-if="constraintHint(field)" class="field-hint">({{ constraintHint(field) }})</span>
+          </label>
 
           <select v-if="field.enum" v-model="form.attributes[field.key]" class="input">
             <option value="">—</option>
             <option v-for="opt in field.enum" :key="opt" :value="opt">{{ opt }}</option>
           </select>
 
+          <!-- Range slider for bounded 0-1 numbers (e.g. confidence) -->
+          <div v-else-if="getAttrInputType(field) === 'range'" class="range-field">
+            <input
+              v-model.number="form.attributes[field.key]"
+              type="range"
+              :min="field.minimum"
+              :max="field.maximum"
+              step="0.05"
+              class="range-input"
+            />
+            <span class="range-value font-mono">{{ form.attributes[field.key] ?? field.minimum }}</span>
+          </div>
+
           <input v-else-if="getAttrInputType(field) === 'number'"
-            v-model.number="form.attributes[field.key]" type="number" class="input" />
+            v-model.number="form.attributes[field.key]" type="number" class="input"
+            :min="field.minimum" :max="field.maximum" />
 
           <input v-else-if="getAttrInputType(field) === 'date'"
             v-model="form.attributes[field.key]" type="date" class="input" />
@@ -169,13 +213,15 @@ function pillClass(typeName: string): string {
           </label>
 
           <input v-else v-model="form.attributes[field.key]" class="input" />
+
+          <div v-if="fieldErrors[field.key]" class="field-error">{{ fieldErrors[field.key] }}</div>
         </div>
       </div>
 
       <!-- Notes -->
       <div class="field">
         <label class="label">Notes</label>
-        <textarea v-model="form.notes" class="input textarea" placeholder="Supporting context, evidence..." rows="2"></textarea>
+        <textarea v-model="form.notes" class="input textarea" placeholder="Supporting context, evidence..." rows="6"></textarea>
       </div>
 
       <!-- Tags -->
@@ -185,7 +231,7 @@ function pillClass(typeName: string): string {
       </div>
     </template>
 
-    <div class="form-actions">
+    <div v-if="!hideActions" class="form-actions">
       <button class="btn" @click="emit('cancel')">Cancel</button>
       <button class="btn btn-primary" @click="save" :disabled="saving">
         {{ saving ? 'Saving...' : (isEdit ? 'Save Changes' : (linkToOutcomeId ? 'Create & Link' : 'Create Motivation')) }}
@@ -225,6 +271,13 @@ function pillClass(typeName: string): string {
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
 
 .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-1); cursor: pointer; }
+
+.field-hint { font-size: 10px; color: var(--text-3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.field-error { font-size: 11px; color: var(--red); margin-top: 4px; }
+
+.range-field { display: flex; align-items: center; gap: 10px; }
+.range-input { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.range-value { font-size: 13px; font-weight: 600; color: var(--accent); min-width: 32px; text-align: right; }
 
 .tag-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-picker .tag { cursor: pointer; }

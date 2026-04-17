@@ -73,6 +73,8 @@ body {
   user-select: none;
 }
 .tag:hover { opacity: 0.85; }
+.tag-inherited { border-style: dashed !important; opacity: 0.8; }
+.tag-inherited-icon { font-size: 9px; margin-left: 2px; opacity: 0.6; }
 
 .status-badge {
   font-size: 10px;

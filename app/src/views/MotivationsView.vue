@@ -8,6 +8,7 @@ import { extractId, buildSlugId } from '../composables/useSlug';
 import MotivationDetail from '../components/MotivationDetail.vue';
 import MotivationForm from '../components/MotivationForm.vue';
 import { checkMismatch, type DateMismatch } from '../composables/useDateMismatch';
+import { stripProvider } from '../lib/userId';
 
 const route = useRoute();
 const router = useRouter();
@@ -161,10 +162,10 @@ function pillClass(typeName: string): string {
         <span
           v-for="tag in motivationTags" :key="tag.id"
           :class="['tag', { 'filter-active': tagFilter.includes(tag.name) }]"
-          :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+          :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
           @click="toggleTag(tag.name)"
         >{{ tag.emoji }} {{ tag.name }}</span>
-        <button v-if="tagFilter.length" class="btn btn-sm" @click="tagFilter = []">Clear</button>
+
       </div>
 
       <!-- Header -->
@@ -189,7 +190,17 @@ function pillClass(typeName: string): string {
             <span v-else-if="getRowMismatch(m)?.level === 'warning'" class="mismatch-dot mismatch-dot-warning" :title="getRowMismatch(m)!.message"></span>
           </span>
           <div class="col-title">
-            <div class="row-title">{{ m.title }}</div>
+            <div class="row-title-line">
+              <span class="row-title">{{ m.title }}</span>
+            </div>
+            <div v-if="m.tags && m.tags.length" class="row-tags">
+              <span
+                v-for="tag in m.tags" :key="tag.id"
+                class="tag row-tag"
+                :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                @click.stop="toggleTag(tag.name)"
+              >{{ tag.emoji }} {{ tag.name }}</span>
+            </div>
             <div class="row-subtitle" v-if="m.notes">{{ m.notes }}</div>
           </div>
           <span :class="['col-type motivation-pill', pillClass(m.typeName)]">{{ m.typeName }}</span>
@@ -197,7 +208,7 @@ function pillClass(typeName: string): string {
             {{ Number(m.score).toLocaleString('en', { maximumFractionDigits: 0 }) }}
           </span>
           <span class="col-outcomes font-mono">{{ m.linkedOutcomeCount }}</span>
-          <span class="col-creator">{{ m.createdBy }}</span>
+          <span class="col-creator">{{ stripProvider(m.createdBy) }}</span>
         </div>
         <div v-if="sortedMotivations.length === 0" class="empty">No motivations match filters</div>
       </div>
@@ -269,6 +280,7 @@ function pillClass(typeName: string): string {
 }
 .filter-btn:hover { color: var(--text-1); }
 .filter-btn.active { color: var(--text-0); border-color: var(--text-0); background: var(--bg-hover); }
+.filter-active { border-color: var(--text-0) !important; box-shadow: 0 0 0 1px var(--text-0); }
 .filter-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 
 /* List */
@@ -298,15 +310,21 @@ function pillClass(typeName: string): string {
 .motivation-row:hover { background: var(--bg-hover); }
 .motivation-row.selected { background: var(--accent-dim); border-left: 2px solid var(--teal); padding-left: 22px; }
 
-.row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-title { min-width: 0; }
+.row-title-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.row-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.row-tag { font-size: 10px; padding: 1px 7px; cursor: pointer; }
 .row-subtitle { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .col-score { text-align: right; font-weight: 600; }
 .score-high { color: var(--accent); }
 .score-mid { color: var(--teal); }
 .score-low { color: var(--text-2); }
-.col-outcomes { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
+.col-outcomes { display: flex; align-items: center; gap: 4px; }
+.list-body .col-outcomes { font-size: 12px; color: var(--text-2); }
 
-.col-creator { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-creator { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-body .col-creator { font-size: 11px; color: var(--text-2); }
 .col-flag { display: flex; align-items: center; justify-content: center; }
 .mismatch-dot { width: 8px; height: 8px; border-radius: 50%; }
 .mismatch-dot-critical { background: var(--red); }

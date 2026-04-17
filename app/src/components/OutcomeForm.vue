@@ -6,6 +6,7 @@ import TagPicker from './TagPicker.vue';
 const props = defineProps<{
   outcome?: any; // existing outcome for edit mode, null for create
   defaultMilestoneId?: string | null;
+  hideActions?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -37,7 +38,7 @@ onMounted(async () => {
       effort: props.outcome.effort || '',
       milestoneId: props.outcome.milestoneId || '',
       status: props.outcome.status || 'draft',
-      tagIds: (props.outcome.tags || []).map((t: any) => t.id),
+      tagIds: props.outcome.ownTagIds ?? (props.outcome.tags || []).filter((t: any) => !t.inherited).map((t: any) => t.id),
     };
   } else if (props.defaultMilestoneId) {
     form.value.milestoneId = props.defaultMilestoneId;
@@ -76,11 +77,13 @@ async function save() {
     saving.value = false;
   }
 }
+
+defineExpose({ save });
 </script>
 
 <template>
   <div class="outcome-form">
-    <h3 class="form-title font-display">{{ isEdit ? 'Edit Outcome' : 'New Outcome' }}</h3>
+    <h3 v-if="!hideActions" class="form-title font-display">{{ isEdit ? 'Edit Outcome' : 'New Outcome' }}</h3>
 
     <div v-if="error" class="form-error">{{ error }}</div>
 
@@ -132,7 +135,7 @@ async function save() {
       <TagPicker v-model="form.tagIds" />
     </div>
 
-    <div class="form-actions">
+    <div v-if="!hideActions" class="form-actions">
       <button class="btn" @click="emit('cancel')">Cancel</button>
       <button class="btn btn-primary" @click="save" :disabled="saving">
         {{ saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Outcome') }}

@@ -67,6 +67,7 @@ export interface Motivation {
   status: MotivationStatus;
   notes: string | null;
   attributes: Record<string, unknown>;
+  targetDate: string | null;
   score: number;
   createdBy: string;
   createdAt: string;

@@ -69,7 +69,7 @@ export const outcomes = pgTable('outcomes', {
   status: text('status').notNull().default('draft'),
   pinned: boolean('pinned').notNull().default(false),
   priorityScore: numeric('priority_score', { precision: 12, scale: 2 }).notNull().default('0'),
-  primaryLinkId: uuid('primary_link_id').references(() => externalLinks.id, { onDelete: 'set null' }),
+  primaryLinkId: uuid('primary_link_id').references((): AnyPgColumn => externalLinks.id, { onDelete: 'set null' }),
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -89,6 +89,7 @@ export const motivations = pgTable('motivations', {
   status: text('status').notNull().default('active'),
   notes: text('notes'),
   attributes: jsonb('attributes').notNull().default({}).$type<Record<string, unknown>>(),
+  targetDate: date('target_date'),
   score: numeric('score', { precision: 12, scale: 2 }).notNull().default('0'),
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -136,7 +137,7 @@ export const milestoneTags = pgTable('milestone_tags', {
 // ─── External Links (ValueEdge, GitHub, Jira, etc.) ───
 export const externalLinks = pgTable('external_links', {
   id: uuid('id').defaultRandom().primaryKey(),
-  outcomeId: uuid('outcome_id').notNull().references(() => outcomes.id, { onDelete: 'cascade' }),
+  outcomeId: uuid('outcome_id').notNull().references((): AnyPgColumn => outcomes.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(), // 'valueedge', 'github', 'jira', etc.
   entityType: text('entity_type').notNull(), // provider-specific: epic/feature/story, issue/pr, etc.
   entityId: text('entity_id').notNull(),

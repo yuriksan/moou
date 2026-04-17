@@ -32,6 +32,7 @@ const history = ref<any[]>([]);
 const showAllHistory = ref(false);
 const loading = ref(true);
 const editing = ref(false);
+const motivationFormRef = ref<any>(null);
 const outcomeMismatches = ref<Map<string, DateMismatch | null>>(new Map());
 
 // Formatted history — drops noise-only entries (e.g. updatedAt + score
@@ -154,7 +155,7 @@ function formatAttrValue(value: unknown): string {
         <div class="header-top">
           <button class="close-btn" @click="emit('close')">×</button>
           <div class="header-info">
-            <h2 class="detail-title font-display">{{ motivation.title }}</h2>
+            <h2 class="detail-title font-display editable-field" title="Click to edit" @click="editing = true">{{ motivation.title }}</h2>
             <div class="header-meta">
               <span :class="['motivation-pill', pillClass(motivation.typeName)]">{{ motivation.typeName }}</span>
               <span v-if="motivation.status === 'resolved'" class="status-badge status-completed">Resolved</span>
@@ -169,17 +170,25 @@ function formatAttrValue(value: unknown): string {
           </div>
         </div>
         <div class="header-actions">
-          <button class="btn btn-sm" @click="editing = true">Edit</button>
-          <button v-if="motivation.status === 'active'" class="btn btn-sm" @click="resolve">Resolve</button>
-          <button v-if="motivation.status === 'resolved'" class="btn btn-sm" @click="reopen">Reopen</button>
-          <button class="btn btn-sm btn-danger" @click="deleteMotivation">Delete</button>
+          <template v-if="editing">
+            <button class="btn btn-sm" @click="editing = false">Cancel</button>
+            <button class="btn btn-sm btn-primary" @click="motivationFormRef?.save()">Save Changes</button>
+          </template>
+          <template v-else>
+            <button class="btn btn-sm" @click="editing = true">Edit</button>
+            <button v-if="motivation.status === 'active'" class="btn btn-sm" @click="resolve">Resolve</button>
+            <button v-if="motivation.status === 'resolved'" class="btn btn-sm" @click="reopen">Reopen</button>
+            <button class="btn btn-sm btn-danger" @click="deleteMotivation">Delete</button>
+          </template>
         </div>
       </div>
 
       <!-- Edit Form -->
       <MotivationForm
         v-if="editing"
+        ref="motivationFormRef"
         :motivation="motivation"
+        :hide-actions="true"
         @saved="onEditSaved"
         @cancel="editing = false"
       />
@@ -194,7 +203,7 @@ function formatAttrValue(value: unknown): string {
       </section>
 
       <!-- Attributes -->
-      <section v-if="!editing" class="section">
+      <section v-if="!editing" class="section editable-section" @click="editing = true" title="Click to edit">
         <h3 class="section-title">Attributes</h3>
         <div class="attrs">
           <div v-for="(value, key) in (motivation.attributes || {})" :key="key" class="attr-row">
@@ -205,7 +214,7 @@ function formatAttrValue(value: unknown): string {
       </section>
 
       <!-- Notes -->
-      <section v-if="!editing && motivation.notes" class="section">
+      <section v-if="!editing && motivation.notes" class="section editable-section" @click="editing = true" title="Click to edit">
         <h3 class="section-title">Notes</h3>
         <div class="notes-text">{{ motivation.notes }}</div>
       </section>
@@ -288,6 +297,10 @@ function formatAttrValue(value: unknown): string {
 .close-btn:hover { background: var(--bg-hover); color: var(--text-0); }
 .header-info { flex: 1; min-width: 0; }
 .detail-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.editable-field { cursor: pointer; }
+.editable-field:hover { opacity: 0.75; }
+.editable-section { cursor: pointer; }
+.editable-section:hover { background: var(--bg-hover); }
 .header-meta { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
 .header-actions { display: flex; gap: 6px; margin-top: 10px; }
 .btn-danger { border-color: var(--red); color: var(--red); background: var(--red-dim); }
