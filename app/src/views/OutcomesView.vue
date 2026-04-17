@@ -22,7 +22,7 @@ const total = ref(0);
 const selectedOutcomeId = ref<string | null>(extractId(route.params.slugId as string));
 
 // Filters — persisted to localStorage, URL query params take precedence on load
-const statusFilter = usePersistedRef<string>('outcomes.statusFilter', '', (route.query.status as string) || null);
+const statusFilter = usePersistedRef<string>('outcomes.statusFilter', 'active,approved', (route.query.status as string) || null);
 const tagFilter = usePersistedRef<string[]>('outcomes.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
 const search = usePersistedRef<string>('outcomes.search', '', (route.query.q as string) || null);
 

@@ -21,7 +21,7 @@ const showNewMotivation = ref(false);
 
 // Filters — persisted to localStorage, URL query params take precedence on load
 const typeFilter = usePersistedRef<string>('motivations.typeFilter', '', (route.query.type as string) || null);
-const statusFilter = usePersistedRef<string>('motivations.statusFilter', '');
+const statusFilter = usePersistedRef<string>('motivations.statusFilter', 'active');
 const tagFilter = usePersistedRef<string[]>('motivations.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
 const sortBy = usePersistedRef<string>('motivations.sortBy', 'score');
 

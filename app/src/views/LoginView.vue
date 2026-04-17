@@ -83,7 +83,7 @@ function startPolling() {
   async function poll() {
     if (Date.now() > deadline) {
       step.value = 'idle';
-      error.value = 'Sign-in timed out. Please try again.';
+      error.value = 'Sign-in timed out. Please try again. If you completed sign-in in the browser, check that the username matches the account you used (usually your email address).';
       return;
     }
     try {
@@ -97,8 +97,6 @@ function startPolling() {
           error.value = 'Sign-in failed: your account does not have access to the configured workspace. Contact your ValueEdge administrator.';
         } else if (code === 'WORKSPACE_NOT_FOUND') {
           error.value = 'Sign-in failed: the configured workspace does not exist. Contact your administrator.';
-        } else if (res.status === 404) {
-          error.value = `Sign-in failed: the username does not match the account used in the browser. This is usually your email address — check the username field and try again.`;
         } else {
           error.value = body?.error?.message || `Poll failed (${res.status})`;
         }

@@ -153,7 +153,7 @@ router.get('/valueedge/poll', async (req, res) => {
         { headers: { 'Cookie': `${cookieName}=${lwsso}`, 'HPECLIENTTYPE': 'HPE_REST_API_TECH_PREVIEW' } },
       );
       const meBody = await meRes.text();
-      console.log('[VE me] status=', meRes.status, 'body=', meBody.slice(0, 300));
+      console.log('[VE me] status=', meRes.status);
       const me = JSON.parse(meBody) as { id?: string; name?: string; full_name?: string; email?: string };
       if (me.name || me.id) {
         userId = `valueedge:${me.id || me.name}`;

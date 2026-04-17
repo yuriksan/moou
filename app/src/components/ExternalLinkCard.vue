@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { api } from '../composables/useApi';
 
 const props = defineProps<{
@@ -61,18 +61,20 @@ async function disconnect() {
   emit('deleted');
 }
 
-async function togglePrimary() {
+function togglePrimary() {
   settingPrimary.value = true;
-  try {
-    if (props.isPrimary) {
-      emit('clearPrimary');
-    } else {
-      emit('setPrimary');
-    }
-  } finally {
-    settingPrimary.value = false;
+  if (props.isPrimary) {
+    emit('clearPrimary');
+  } else {
+    emit('setPrimary');
   }
 }
+
+// The parent performs the async API call and reloads data, which updates
+// the isPrimary prop. Watch for that change to clear the loading state.
+watch(() => props.isPrimary, () => {
+  settingPrimary.value = false;
+});
 </script>
 
 <template>

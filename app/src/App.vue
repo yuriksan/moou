@@ -109,12 +109,13 @@ const navItems = [
 
     <div class="topbar-right">
       <SearchBar />
-      <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙
+      <div class="admin-dropdown">
+        <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙</button>
         <div v-if="showAdminMenu" class="admin-menu" @click.stop>
           <div class="admin-menu-item" @click="router.push('/admin/tags'); showAdminMenu = false">Tags</div>
           <div class="admin-menu-item" @click="router.push('/admin/field-config'); showAdminMenu = false">Field Requirements</div>
         </div>
-      </button>
+      </div>
       <button class="help-btn" @click="showWalkthrough = true" title="Help & walkthrough">?</button>
       <!-- Authenticated user (GitHub or ValueEdge) -->
       <div v-if="authenticatedUser" class="user-switcher" @click="showUserMenu = !showUserMenu">
@@ -213,6 +214,10 @@ const navItems = [
   position: relative;
 }
 .help-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.admin-dropdown {
+  position: relative;
+}
 
 .admin-menu {
   position: absolute;

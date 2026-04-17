@@ -189,10 +189,6 @@ api.get('/motivation-types', async (_req, res) => {
   res.json(types);
 });
 
-api.get('/provider', (_req, res) => {
-  res.json(getProvider());
-});
-
 app.use('/api', api);
 
 // ─── Global error handler ───
