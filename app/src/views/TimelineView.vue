@@ -169,6 +169,7 @@ async function saveEditMilestone() {
   await loadData();
 }
 
+
 function outcomeMismatchLevel(o: any): MismatchLevel | null {
   if (!o.milestoneDate || !o.earliestMotivationDate) return null;
   const motTime = new Date(o.earliestMotivationDate).getTime();
@@ -630,6 +631,10 @@ async function onOutcomeSaved(outcome: any) {
   background: var(--bg-2);
   border-bottom: 1px solid var(--border-subtle);
   align-items: center;
+}
+.milestone-edit-form .input:first-child {
+  flex: 1;
+  min-width: 240px;
 }
 
 .milestone-cards {
