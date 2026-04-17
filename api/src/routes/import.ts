@@ -45,7 +45,7 @@ function cellStr(row: ExcelJS.Row, headers: string[], headerName: string): strin
 function parseHeaders(sheet: ExcelJS.Worksheet): string[] {
   const headers: string[] = [];
   sheet.getRow(1).eachCell((cell, colNumber) => {
-    headers[colNumber] = String(cell.value || '').trim();
+    headers[colNumber - 1] = String(cell.value || '').trim();
   });
   return headers;
 }
@@ -116,6 +116,8 @@ router.post('/timeline/diff', async (req, res) => {
 
     const msId = cellStr(row, msHeaders, 'Milestone ID');
     const msName = cellStr(row, msHeaders, 'Name');
+    // Intentionally skip rows without an existing Milestone ID — new milestones
+    // are created via the app, not via spreadsheet import.
     if (!msId || !milestoneMap.has(msId)) continue;
 
     const existing = milestoneMap.get(msId)!;
@@ -343,6 +345,11 @@ router.post('/timeline/apply', async (req, res) => {
         }
 
         await db.update(milestones).set(updates as any).where(eq(milestones.id, diff.entityId));
+        // Keep milestoneByName in sync so later diffs resolve the new name
+        if (diff.changes.name) {
+          milestoneByName.delete(existing.name);
+          milestoneByName.set(diff.changes.name.new as string, { ...existing, ...updates } as any);
+        }
         applied.push(`Updated milestone: ${diff.title}`);
 
       } else if (diff.type === 'outcome_modified' || diff.type === 'outcome_moved') {
@@ -363,10 +370,16 @@ router.post('/timeline/apply', async (req, res) => {
         if (diff.changes.status) updates.status = diff.changes.status.new;
         if (diff.changes.milestone) {
           const msName = diff.changes.milestone.new as string;
-          // Refresh milestone lookup in case milestones were just updated
-          const refreshed = await db.select().from(milestones);
-          const byName = new Map(refreshed.map(m => [m.name, m]));
-          updates.milestoneId = msName ? (byName.get(msName)?.id || null) : null;
+          if (msName) {
+            const matched = milestoneByName.get(msName);
+            if (!matched) {
+              applied.push(`SKIPPED: ${diff.title} — unknown milestone "${msName}"`);
+              continue;
+            }
+            updates.milestoneId = matched.id;
+          } else {
+            updates.milestoneId = null;
+          }
         }
 
         await db.update(outcomes).set(updates as any).where(eq(outcomes.id, diff.entityId));
@@ -404,13 +417,20 @@ router.post('/timeline/apply', async (req, res) => {
 
       } else if (diff.type === 'outcome_created') {
         const msName = diff.changes.milestone?.new as string;
-        const refreshed = await db.select().from(milestones);
-        const byName = new Map(refreshed.map(m => [m.name, m]));
+        let newMilestoneId: string | null = null;
+        if (msName) {
+          const matched = milestoneByName.get(msName);
+          if (!matched) {
+            applied.push(`SKIPPED: ${diff.title} — unknown milestone "${msName}"`);
+            continue;
+          }
+          newMilestoneId = matched.id;
+        }
         const [created] = await db.insert(outcomes).values({
           title: diff.changes.title?.new as string || diff.title,
           effort: diff.changes.effort?.new as string || null,
           status: (diff.changes.status?.new as string) || 'draft',
-          milestoneId: msName ? (byName.get(msName)?.id || null) : null,
+          milestoneId: newMilestoneId,
           createdBy: req.user!.id,
         }).returning() as any[];
         await recordCreate('outcome', created.id, created as any, req.user!.id);

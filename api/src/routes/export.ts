@@ -2,7 +2,7 @@ import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
-import { eq, sql, isNull } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES } from '../lib/input-validation.js';
 
 const router = Router();
@@ -210,6 +210,17 @@ async function buildStructuredData() {
   return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name) };
 }
 
+/** Convert a 1-based column number to an Excel column letter string (1=A, 26=Z, 27=AA, etc.) */
+function colLetter(n: number): string {
+  let s = '';
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
+}
+
 // ─── Styles ───
 
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E7E3' } };
@@ -335,7 +346,7 @@ function jsonSchemaToValidation(propSchema: Record<string, unknown>, propName: s
 // ─── GET /export/timeline ───
 
 router.get('/timeline', async (_req, res) => {
-  const { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames } = await buildStructuredData();
+  const { outcomeRows, milestoneRows, motivationsByType, allTypes } = await buildStructuredData();
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'moou';
@@ -385,6 +396,12 @@ router.get('/timeline', async (_req, res) => {
 
   msSheet.views = [{ state: 'frozen', ySplit: 1 }];
   msSheet.autoFilter = { from: 'A1', to: `H${milestoneRows.length + 1}` };
+
+  // Define a named range for milestone names (column B, data rows only).
+  // Used by Timeline sheet milestone dropdown to avoid Excel's inline list character limit.
+  const msLastDataRow = Math.max(milestoneRows.length + 1, 2); // at least row 2 so range is valid
+  workbook.definedNames.add(`'Milestones'!$B$2:$B$${msLastDataRow}`, 'MilestoneNames');
+
   // Protect sheet — only editable cells are unlocked
   await msSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
 
@@ -407,10 +424,19 @@ router.get('/timeline', async (_req, res) => {
   ];
   applyHeaderStyle(tlSheet.getRow(1));
 
-  // Milestone dropdown references the Milestones sheet Name column
-  const milestoneListValidation: ExcelJS.DataValidation = milestoneNames.length > 0
-    ? { type: 'list', formulae: [`"${milestoneNames.join(',')}"`], allowBlank: true, showErrorMessage: true, errorTitle: 'Unknown milestone', error: 'Select a milestone from the Milestones sheet, or leave blank for backlog.', showInputMessage: true, promptTitle: 'Milestone', prompt: 'Select milestone or leave blank', errorStyle: 'warning' }
-    : { type: 'list', formulae: ['""'], allowBlank: true } as any;
+  // Milestone dropdown references the named range defined on the Milestones sheet
+  const milestoneListValidation: ExcelJS.DataValidation = {
+    type: 'list',
+    formulae: ['MilestoneNames'],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Unknown milestone',
+    error: 'Select a milestone from the Milestones sheet, or leave blank for backlog.',
+    showInputMessage: true,
+    promptTitle: 'Milestone',
+    prompt: 'Select milestone or leave blank',
+    errorStyle: 'warning',
+  };
 
   for (const o of outcomeRows) {
     const row = tlSheet.addRow({
@@ -428,8 +454,8 @@ router.get('/timeline', async (_req, res) => {
     });
     row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
 
-    // Make primary link a clickable hyperlink
-    if (o.primaryLinkUrl) {
+    // Make primary link a clickable hyperlink (only for safe schemes)
+    if (o.primaryLinkUrl && /^https?:\/\//i.test(o.primaryLinkUrl)) {
       const linkCell = row.getCell('primaryLinkUrl');
       linkCell.value = { text: o.primaryLinkUrl, hyperlink: o.primaryLinkUrl } as any;
       linkCell.font = { ...linkCell.font, color: { argb: 'FF2A7AC8' }, underline: true };
@@ -460,7 +486,7 @@ router.get('/timeline', async (_req, res) => {
   }
 
   tlSheet.views = [{ state: 'frozen', ySplit: 1 }];
-  const tlLastCol = String.fromCharCode(64 + tlSheet.columns.length); // J
+  const tlLastCol = colLetter(tlSheet.columns.length);
   tlSheet.autoFilter = { from: 'A1', to: `${tlLastCol}${outcomeRows.length + 1}` };
   await tlSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
 
@@ -548,7 +574,7 @@ router.get('/timeline', async (_req, res) => {
       }
     }
 
-    const typeLastCol = String.fromCharCode(64 + typeSheet.columns.length);
+    const typeLastCol = colLetter(typeSheet.columns.length);
     typeSheet.views = [{ state: 'frozen', ySplit: 1 }];
     typeSheet.autoFilter = { from: 'A1', to: `${typeLastCol}${typeRows.length + 1}` };
     await typeSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });

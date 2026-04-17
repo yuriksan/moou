@@ -20,14 +20,14 @@ The current export creates one sheet per milestone + a Backlog sheet. This cause
 
 | Column | Notes |
 |---|---|
-| Milestone ID | Hidden column, used by import |
+| Milestone ID | Visible, narrow — used by import |
 | Name | Editable — single source of truth |
 | Target Date | Editable — single source of truth |
 | Type | Dropdown: release, deadline, review |
 | Status | Dropdown: upcoming, active, completed |
-| Outcomes | Count (formula: COUNTIF on Timeline sheet) |
-| Avg Priority Score | Formula: AVERAGEIF on Timeline sheet |
-| Completed | Count of outcomes with status=completed |
+| Outcomes | Pre-computed count |
+| Avg Priority Score | Pre-computed average |
+| Completed | Pre-computed count of outcomes with status=completed |
 
 This is the **single source of truth** for milestone properties. On import, moou reads this sheet first, updates milestone records, then processes the Timeline sheet.
 
@@ -35,7 +35,7 @@ This is the **single source of truth** for milestone properties. On import, moou
 
 | Column | Notes |
 |---|---|
-| Outcome ID | Hidden, used by import |
+| Outcome ID | Visible, narrow — used by import |
 | Outcome | Editable title |
 | Description | Editable |
 | Milestone | **Dropdown** validated against Milestones sheet Name column |
@@ -59,10 +59,10 @@ Each sheet contains only motivations of that type, with only the columns relevan
 
 | Column | Notes |
 |---|---|
-| Motivation ID | Hidden, used by import |
+| Motivation ID | Visible, narrow — used by import |
 | Motivation | Editable title |
 | Outcome | Parent outcome title (read-only context) |
-| Outcome ID | Hidden, used by import to verify linkage |
+| Outcome ID | Visible, narrow — used by import to verify linkage |
 | Score | Read-only (calculated) |
 | Status | Dropdown: active, resolved |
 | *(type-specific attributes)* | One column per attribute from the type's JSON Schema, with appropriate validation (enum dropdowns, numeric ranges, date pickers, etc.) |

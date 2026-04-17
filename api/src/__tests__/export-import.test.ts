@@ -15,19 +15,6 @@ function api() {
   };
 }
 
-function parseExcel(res: any): Promise<ExcelJS.Workbook> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    res.on('data', (d: Buffer) => chunks.push(d));
-    res.on('end', async () => {
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(Buffer.concat(chunks));
-      resolve(wb);
-    });
-    res.on('error', reject);
-  });
-}
-
 async function exportWorkbook(): Promise<ExcelJS.Workbook> {
   const res = await api().get('/export/timeline')
     .buffer(true)
