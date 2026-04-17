@@ -79,10 +79,9 @@ describe('ValueEdgeAdapter', () => {
       mockFetch.mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
       await adapter.searchItems(TOKEN, 'my query', 'story');
       const url: string = mockFetch.mock.calls[0]![0];
-      // Verify the VE query contains name CONTAINS and the quoted search term
-      // (spaces may be encoded as %20 or + — both are valid percent-encoding)
+      // The adapter uses VE query language: name='*<query>*' (wildcard match)
       const decoded = decodeURIComponent(url);
-      expect(decoded).toContain('name CONTAINS "my query"');
+      expect(decoded).toContain("name='*my query*'");
     });
   });
 

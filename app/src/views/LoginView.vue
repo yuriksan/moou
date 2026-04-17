@@ -46,7 +46,7 @@ async function startValueEdge() {
   // Open the window synchronously (still in the click event stack) with a
   // placeholder URL so browsers don't block the popup, then redirect it once
   // we have the real auth URL from the server.
-  const authWindow = window.open('about:blank', '_blank');
+  const authWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
   try {
     const res = await fetch(`${AUTH_BASE}/valueedge/start`, {
       method: 'POST',

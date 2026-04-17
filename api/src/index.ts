@@ -28,7 +28,7 @@ if (!SUPPORTED_PROVIDERS.includes(process.env.EXTERNAL_PROVIDER || '')) {
 async function start() {
   // Run migrations before anything else
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const migrationsFolder = join(__dirname, '../../drizzle');
+  const migrationsFolder = join(__dirname, '../drizzle');
   const migrationDb = drizzle(pool);
   console.log('Running database migrations...');
   await migrate(migrationDb, { migrationsFolder });

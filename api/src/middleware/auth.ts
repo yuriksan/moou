@@ -59,7 +59,13 @@ async function sessionAuth(req: Request, res: Response, next: NextFunction) {
   const session = await getSession(req, res);
 
   if (session.user && session.accessToken) {
-    req.user = session.user as any;
+    // Load the full user record from the DB so req.user includes role
+    const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+    if (dbUser) {
+      req.user = dbUser as any;
+    } else {
+      req.user = session.user as any;
+    }
     req.accessToken = session.accessToken;
     return next();
   }

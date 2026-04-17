@@ -12,9 +12,10 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes) => {
             // Ensure Set-Cookie is forwarded as-is (Vite can strip it)
-            const setCookie = proxyRes.headers['set-cookie'];
-            if (setCookie) {
-              proxyRes.headers['set-cookie'] = setCookie.map(c =>
+            const raw = proxyRes.headers['set-cookie'];
+            if (raw) {
+              const cookies = Array.isArray(raw) ? raw : [raw];
+              proxyRes.headers['set-cookie'] = cookies.map(c =>
                 c.replace(/;\s*SameSite=[^;]*/i, '').replace(/;\s*Secure/i, ''),
               );
             }
@@ -26,9 +27,10 @@ export default defineConfig({
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes) => {
-            const setCookie = proxyRes.headers['set-cookie'];
-            if (setCookie) {
-              proxyRes.headers['set-cookie'] = setCookie.map(c =>
+            const raw = proxyRes.headers['set-cookie'];
+            if (raw) {
+              const cookies = Array.isArray(raw) ? raw : [raw];
+              proxyRes.headers['set-cookie'] = cookies.map(c =>
                 c.replace(/;\s*SameSite=[^;]*/i, '').replace(/;\s*Secure/i, ''),
               );
             }

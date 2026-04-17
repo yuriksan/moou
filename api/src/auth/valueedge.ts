@@ -152,8 +152,9 @@ router.get('/valueedge/poll', async (req, res) => {
         `${BASE_URL}/v1/auth`,
         { headers: { 'Cookie': `${cookieName}=${lwsso}`, 'HPECLIENTTYPE': 'HPE_REST_API_TECH_PREVIEW' } },
       );
-      console.log('[VE me] status=', meRes.status, 'body=', (await meRes.text()).slice(0, 300));
-      const me = await meRes.json() as { id?: string; name?: string; full_name?: string; email?: string };
+      const meBody = await meRes.text();
+      console.log('[VE me] status=', meRes.status, 'body=', meBody.slice(0, 300));
+      const me = JSON.parse(meBody) as { id?: string; name?: string; full_name?: string; email?: string };
       if (me.name || me.id) {
         userId = `valueedge:${me.id || me.name}`;
         userName = me.full_name || me.name || userName;
