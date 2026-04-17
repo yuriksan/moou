@@ -22,6 +22,7 @@ import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
 import { getSession } from './auth/session.js';
 import githubAuthRouter from './auth/github.js';
+import valueedgeAuthRouter from './auth/valueedge.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -101,10 +102,11 @@ app.use(globalLimiter);
 
 // ─── Auth routes (before auth middleware — no auth required to login) ───
 app.use('/auth', githubAuthRouter);
+app.use('/auth', valueedgeAuthRouter);
 
 // ─── /api/me endpoint (returns current user from session or mock) ───
 app.get('/api/me', async (req, res) => {
-  if (process.env.EXTERNAL_PROVIDER === 'github') {
+  if (process.env.EXTERNAL_PROVIDER === 'github' || process.env.EXTERNAL_PROVIDER === 'valueedge') {
     const session = await getSession(req, res);
     if (session.user) {
       res.json(session.user);
@@ -126,12 +128,33 @@ app.get('/api/me', async (req, res) => {
   res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
 });
 
-app.use(authMiddleware);
-
-// ─── Health check (outside /api prefix for load balancers) ───
+// ─── Health check (outside /api prefix for load balancers, no auth required) ───
 app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// ─── Public info endpoint — returns the configured provider so the login
+//     page can show the correct sign-in flow before auth is established. ───
+app.get('/api/provider', (_req, res) => {
+  res.json(getProvider());
+});
+
+// ─── Serve frontend static files (before auth — no session required) ───
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendDist = join(__dirname, '../../app/dist');
+
+app.use(express.static(frontendDist));
+
+// SPA fallback — any non-API GET serves index.html
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/auth/')) return next();
+  res.sendFile(join(frontendDist, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
+
+app.use(authMiddleware);
+
 
 // ─── API routes — all under /api/ ───
 const api = express.Router();
@@ -166,25 +189,7 @@ api.get('/motivation-types', async (_req, res) => {
   res.json(types);
 });
 
-api.get('/provider', (_req, res) => {
-  res.json(getProvider());
-});
-
 app.use('/api', api);
-
-// ─── Serve frontend static files ───
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const frontendDist = join(__dirname, '../../app/dist');
-
-app.use(express.static(frontendDist));
-
-// SPA fallback — any non-API GET serves index.html
-app.use((req, res, next) => {
-  if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
-  res.sendFile(join(frontendDist, 'index.html'), (err) => {
-    if (err) next();
-  });
-});
 
 // ─── Global error handler ───
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

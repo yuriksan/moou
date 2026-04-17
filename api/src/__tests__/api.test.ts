@@ -6,10 +6,10 @@ import { app } from '../app.js';
 const USER = 'sarah-chen';
 const agent = () => request(app).host(''); // Use app directly
 
-// All API routes are under /api/
+// All API routes are under /api/. GET requests now also require auth.
 function api() {
   return {
-    get: (path: string) => request(app).get(`/api${path}`),
+    get: (path: string) => request(app).get(`/api${path}`).set('X-User-Id', USER),
     post: (path: string) => request(app).post(`/api${path}`),
     put: (path: string) => request(app).put(`/api${path}`),
     patch: (path: string) => request(app).patch(`/api${path}`),
@@ -39,7 +39,13 @@ describe('Auth', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET works without auth', async () => {
+  it('GET without auth returns 401', async () => {
+    const res = await request(app).get('/api/tags');
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+
+  it('GET with valid auth returns 200', async () => {
     const res = await api().get('/tags');
     expect(res.status).toBe(200);
   });

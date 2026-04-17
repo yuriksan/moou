@@ -108,7 +108,7 @@ export class GitHubAdapter implements ProviderAdapter {
     }
   }
 
-  async createItem(token: string, entityType: string, title: string, description?: string): Promise<{ entityId: string; url: string }> {
+  async createItem(token: string, entityType: string, title: string, description?: string, _options?: { parentEntityId?: string; parentEntityType?: string }): Promise<{ entityId: string; url: string }> {
     if (entityType === 'pr') {
       throw new Error('Cannot create pull requests from moou — create an issue instead');
     }
@@ -129,5 +129,27 @@ export class GitHubAdapter implements ProviderAdapter {
 
     const data = await res.json() as { number: number; html_url: string };
     return { entityId: String(data.number), url: data.html_url };
+  }
+
+  async updateItem(token: string, entityType: string, entityId: string, changes: { name?: string; description?: string }): Promise<void> {
+    if (entityType === 'pr') {
+      throw new Error('Cannot update pull requests from moou');
+    }
+
+    const body: Record<string, string> = {};
+    if (changes.name !== undefined) body.title = changes.name;
+    if (changes.description !== undefined) body.body = changes.description;
+    if (Object.keys(body).length === 0) return;
+
+    const res = await fetch(`${repoUrl()}/issues/${encodeURIComponent(entityId)}`, {
+      method: 'PATCH',
+      headers: headers(token),
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as any;
+      throw new Error(`GitHub API error: ${res.status} — ${err.message || 'failed to update issue'}`);
+    }
   }
 }

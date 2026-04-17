@@ -23,8 +23,13 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
-      CORS_ORIGINS: ""
-      EXTERNAL_PROVIDER: ${EXTERNAL_PROVIDER:-valueedge}
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      EXTERNAL_PROVIDER: ${EXTERNAL_PROVIDER:-github}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
     depends_on:
       db:
         condition: service_healthy

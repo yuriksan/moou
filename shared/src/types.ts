@@ -54,6 +54,7 @@ export interface Outcome {
   status: OutcomeStatus;
   pinned: boolean;
   priorityScore: number;
+  primaryLinkId: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

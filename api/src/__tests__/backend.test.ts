@@ -103,6 +103,42 @@ describe('GitHubAdapter', () => {
     });
   });
 
+  describe('updateItem', () => {
+    it('sends PATCH with title when name is provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+      await adapter.updateItem(TOKEN, 'issue', '42', { name: 'New title' });
+      const [url, opts] = mockFetch.mock.calls[0]!;
+      expect(url).toContain('/issues/42');
+      expect(JSON.parse(opts.body)).toEqual({ title: 'New title' });
+    });
+
+    it('sends PATCH with body when description is provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+      await adapter.updateItem(TOKEN, 'issue', '42', { description: 'New desc' });
+      expect(JSON.parse(mockFetch.mock.calls[0]![1].body)).toEqual({ body: 'New desc' });
+    });
+
+    it('sends both fields when both provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+      await adapter.updateItem(TOKEN, 'issue', '42', { name: 'T', description: 'D' });
+      expect(JSON.parse(mockFetch.mock.calls[0]![1].body)).toEqual({ title: 'T', body: 'D' });
+    });
+
+    it('makes no request when changes is empty', async () => {
+      await adapter.updateItem(TOKEN, 'issue', '42', {});
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('throws on API error', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({ message: 'Validation failed' }) });
+      await expect(adapter.updateItem(TOKEN, 'issue', '42', { name: 'X' })).rejects.toThrow('422');
+    });
+
+    it('throws for PR entity type', async () => {
+      await expect(adapter.updateItem(TOKEN, 'pr', '5', { name: 'X' })).rejects.toThrow('pull requests');
+    });
+  });
+
   describe('getChildProgress', () => {
     it('returns null when sub-issues API unavailable', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });

@@ -7,6 +7,7 @@ export interface BackendItem {
   entityType: string;
   entityId: string;
   title: string;
+  description?: string;
   state: string;
   stateReason?: string;
   labels: Array<{ name: string; color?: string }>;
@@ -25,6 +26,8 @@ export interface ProviderEntityType {
   name: string;
   label: string;
   default?: boolean;
+  /** Entity type that must be selected as parent when creating this type (e.g. 'epic' for feature, 'feature' for story) */
+  parentEntityType?: string;
 }
 
 export interface ProviderAdapter {
@@ -42,15 +45,66 @@ export interface ProviderAdapter {
   getChildProgress(token: string, entityType: string, entityId: string): Promise<ChildProgress | null>;
 
   /** Create a new item in the backend */
-  createItem(token: string, entityType: string, title: string, description?: string): Promise<{ entityId: string; url: string }>;
+  createItem(
+    token: string,
+    entityType: string,
+    title: string,
+    description?: string,
+    options?: { parentEntityId?: string; parentEntityType?: string; [key: string]: any },
+  ): Promise<{ entityId: string; url: string }>;
+
+  /**
+   * Write name and/or description back to a backend item (partial update).
+   * Only fields present in `changes` are written.
+   */
+  updateItem?(token: string, entityType: string, entityId: string, changes: { name?: string; description?: string }): Promise<void>;
+
+  /**
+   * Return the fields (required + key optional) needed to create an item of this type,
+   * along with pre-fetched allowed values for simple enum-like fields.
+   * Returns null if this provider doesn't support dynamic field discovery.
+   */
+  getCreateOptions?(token: string, entityType: string): Promise<CreateOptions | null>;
+}
+
+// ─── Create-form field descriptors ───
+
+export type FieldType = 'string' | 'memo' | 'integer' | 'reference' | 'list_node' | 'date' | 'boolean';
+
+export interface CreateFieldOption {
+  id: string;
+  name: string;
+}
+
+export interface CreateField {
+  name: string;
+  label: string;
+  fieldType: FieldType;
+  required: boolean;
+  /** For list_node / reference fields with a small finite set of values */
+  options?: CreateFieldOption[];
+  /** For reference fields that need a live search: the backend entity type to search */
+  searchEntityType?: string;
+  /** For reference fields: the VE entity type string needed when building the payload reference object */
+  referenceType?: string;
+}
+
+export interface CreateOptions {
+  entityType: string;
+  /** Parent entity type the user must select (null for epics — parent is fixed). */
+  parentEntityType: string | null;
+  parentEntityTypeLabel: string | null;
+  fields: CreateField[];
 }
 
 // ─── Registry ───
 
 import { GitHubAdapter } from './github-adapter.js';
+import { ValueEdgeAdapter } from './valueedge-adapter.js';
 
 const adapters: Record<string, ProviderAdapter> = {
   github: new GitHubAdapter(),
+  valueedge: new ValueEdgeAdapter(),
 };
 
 /**

@@ -69,6 +69,7 @@ export const outcomes = pgTable('outcomes', {
   status: text('status').notNull().default('draft'),
   pinned: boolean('pinned').notNull().default(false),
   priorityScore: numeric('priority_score', { precision: 12, scale: 2 }).notNull().default('0'),
+  primaryLinkId: uuid('primary_link_id').references(() => externalLinks.id, { onDelete: 'set null' }),
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -174,3 +175,17 @@ export const history = pgTable('history', {
   check('history_change_type_check', sql`${table.changeType} IN ('created', 'updated', 'deleted', 'linked', 'unlinked', 'resolved', 'reopened', 'pinned', 'unpinned')`),
   index('history_entity_lookup_idx').on(table.entityType, table.entityId, table.changedAt),
 ]);
+
+// ─── Backend Field Config ───
+export const backendFieldConfig = pgTable('backend_field_config', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  provider: text('provider').notNull(),
+  entityType: text('entity_type').notNull(),
+  fieldName: text('field_name').notNull(),
+  required: boolean('required').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('backend_field_config_unique_idx').on(table.provider, table.entityType, table.fieldName),
+]);
+

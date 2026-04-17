@@ -1,31 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { setCurrentUser, getCurrentUser, ApiError, api } from '../composables/useApi';
+import { ApiError, api } from '../composables/useApi';
 import { useToast } from '../composables/useToast';
-
-describe('useApi - user management', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('defaults to sarah-chen', () => {
-    // Re-import to get fresh default — but since it's module-level, test the setter/getter
-    setCurrentUser('sarah-chen');
-    expect(getCurrentUser()).toBe('sarah-chen');
-  });
-
-  it('switches users and persists to localStorage', () => {
-    setCurrentUser('james-obi');
-    expect(getCurrentUser()).toBe('james-obi');
-    expect(localStorage.getItem('moou-user')).toBe('james-obi');
-  });
-
-  it('switches back', () => {
-    setCurrentUser('dev-patel');
-    expect(getCurrentUser()).toBe('dev-patel');
-    setCurrentUser('anna-mueller');
-    expect(getCurrentUser()).toBe('anna-mueller');
-  });
-});
 
 describe('ApiError', () => {
   it('creates error with status and message', () => {

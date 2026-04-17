@@ -74,6 +74,7 @@ beforeAll(async () => {
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'approved', 'deferred', 'completed', 'archived')),
       pinned BOOLEAN NOT NULL DEFAULT false,
       priority_score NUMERIC(12,2) NOT NULL DEFAULT 0,
+      primary_link_id UUID,
       created_by TEXT NOT NULL REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -131,6 +132,10 @@ beforeAll(async () => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    ALTER TABLE outcomes
+      ADD CONSTRAINT outcomes_primary_link_id_fkey
+      FOREIGN KEY (primary_link_id) REFERENCES external_links(id) ON DELETE SET NULL;
+
     CREATE TABLE comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       outcome_id UUID NOT NULL REFERENCES outcomes(id) ON DELETE CASCADE,
@@ -147,6 +152,17 @@ beforeAll(async () => {
       changes JSONB NOT NULL DEFAULT '{}',
       changed_by TEXT NOT NULL REFERENCES users(id),
       changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE backend_field_config (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      provider TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      required BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (provider, entity_type, field_name)
     );
   `);
 
@@ -168,6 +184,7 @@ beforeEach(async () => {
     DELETE FROM outcomes;
     DELETE FROM milestones;
     DELETE FROM tags;
+    DELETE FROM backend_field_config;
   `);
 });
 

@@ -1,6 +1,6 @@
 import { ref, onUnmounted } from 'vue';
 
-const BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3000/api');
+const BASE = import.meta.env.VITE_API_URL || '/api';
 
 export interface SSEEvent {
   type: string;

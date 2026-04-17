@@ -1,18 +1,9 @@
 import { toast } from './useToast';
 
-// All API routes are under /api/. In dev, proxy or hit the server directly.
-const BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3000/api');
-
-let currentUserId = localStorage.getItem('moou-user') || 'sarah-chen';
-
-export function setCurrentUser(userId: string) {
-  currentUserId = userId;
-  localStorage.setItem('moou-user', userId);
-}
-
-export function getCurrentUser() {
-  return currentUserId;
-}
+// All API routes are under /api/. Always use relative path so requests go
+// through the Vite proxy in dev — this keeps everything same-origin so
+// the session cookie works with sameSite: lax.
+const BASE = import.meta.env.VITE_API_URL || '/api';
 
 /**
  * Request options beyond the standard RequestInit.
@@ -32,14 +23,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     ...((fetchOptions.headers as Record<string, string>) || {}),
   };
 
-  // Add auth header for mutations
-  if (fetchOptions.method && fetchOptions.method !== 'GET') {
-    headers['X-User-Id'] = currentUserId;
-  }
-
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...fetchOptions, headers });
+    res = await fetch(`${BASE}${path}`, { ...fetchOptions, headers, credentials: 'include' });
   } catch (err: any) {
     // Network error (server down, CORS block, DNS, etc.)
     const message = 'Could not reach the server. Is the API running?';
@@ -192,12 +178,28 @@ export const api = {
     return request<{ items: any[]; provider: string; entityTypes: any[] }>(`/backend/search?${params}`);
   },
   getBackendEntityTypes: () => request<{ entityTypes: any[]; provider: string; label: string }>('/backend/entity-types'),
+  getCreateOptions: (entityType: string) =>
+    request<{ fields: any[]; parentEntityType: string | null; parentEntityTypeLabel: string | null }>(`/backend/create-options?entityType=${encodeURIComponent(entityType)}`),
+  getFieldConfig: (provider: string, entityType: string) => {
+    const params = new URLSearchParams({ provider, entityType });
+    return request<{ data: any[] }>(`/backend/field-config?${params}`);
+  },
+  upsertFieldConfig: (provider: string, entityType: string, fieldName: string, required: boolean) =>
+    request<any>('/backend/field-config', { method: 'PUT', body: JSON.stringify({ provider, entityType, fieldName, required }) }),
+  deleteFieldConfig: (id: string) =>
+    request<void>(`/backend/field-config/${id}`, { method: 'DELETE' }),
   connectOutcome: (outcomeId: string, entityType: string, entityId: string) =>
     request<any>(`/outcomes/${outcomeId}/connect`, { method: 'POST', body: JSON.stringify({ entityType, entityId }) }),
-  publishOutcome: (outcomeId: string, entityType?: string) =>
-    request<any>(`/outcomes/${outcomeId}/publish`, { method: 'POST', body: JSON.stringify({ entityType }) }),
+  publishOutcome: (outcomeId: string, entityType?: string, parentEntityId?: string, parentEntityType?: string, extraFields?: Record<string, any>) =>
+    request<any>(`/outcomes/${outcomeId}/publish`, { method: 'POST', body: JSON.stringify({ entityType, parentEntityId, parentEntityType, ...(extraFields ?? {}) }) }),
   refreshExternalLink: (linkId: string) =>
     request<any>(`/external-links/${linkId}/refresh`, { method: 'POST' }),
+  setPrimaryLink: (outcomeId: string, linkId: string | null) =>
+    request<any>(`/outcomes/${outcomeId}/primary-link`, { method: 'PATCH', body: JSON.stringify({ linkId }) }),
+  pullPrimary: (outcomeId: string, field: 'title' | 'description') =>
+    request<{ outcome: any; pulledValue: string }>(`/outcomes/${outcomeId}/pull-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
+  pushPrimary: (outcomeId: string, field: 'title' | 'description') =>
+    request<{ ok: boolean }>(`/outcomes/${outcomeId}/push-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
 
   // Export/Import
   exportTimelineUrl: () => `${BASE}/export/timeline`,
@@ -206,7 +208,8 @@ export const api = {
     const buffer = await file.arrayBuffer();
     const res = await fetch(`${BASE}/import/timeline/diff`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream', 'X-User-Id': currentUserId },
+      headers: { 'Content-Type': 'application/octet-stream' },
+      credentials: 'include',
       body: buffer,
     });
     if (!res.ok) throw new ApiError(res.status, 'Import failed');

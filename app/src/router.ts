@@ -7,6 +7,11 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/login',
+      name: 'login',
+      component: () => import('./views/LoginView.vue'),
+    },
+    {
       path: '/',
       redirect: '/timeline',
     },
@@ -29,6 +34,11 @@ const router = createRouter({
       path: '/admin/tags',
       name: 'tag-admin',
       component: () => import('./views/TagAdminView.vue'),
+    },
+    {
+      path: '/admin/field-config',
+      name: 'field-config-admin',
+      component: () => import('./views/FieldConfigAdminView.vue'),
     },
   ],
 });

@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import { getSession } from '../auth/session.js';
 
 const isGitHubProvider = process.env.EXTERNAL_PROVIDER === 'github';
+const isValueEdgeProvider = process.env.EXTERNAL_PROVIDER === 'valueedge';
+const isTestEnv = () => process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
 
 // Extend Express Request to include user and accessToken
 declare global {
@@ -23,15 +25,18 @@ declare global {
 }
 
 /**
- * Dual-mode auth middleware:
- * - GitHub provider: reads user from iron-session cookie
- * - Mock/other provider: reads X-User-Id header (dev mode)
+ * Auth middleware.
+ * - Tests: mockAuth via X-User-Id header (never reaches production)
+ * - github: iron-session cookie from GitHub OAuth
+ * - valueedge: iron-session cookie from ValueEdge Interactive Token Sharing
+ * - anything else: misconfiguration — reject with 500
  */
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (isGitHubProvider) {
-    return githubAuth(req, res, next);
-  }
-  return mockAuth(req, res, next);
+  if (isTestEnv()) return mockAuth(req, res, next);
+  if (isGitHubProvider) return githubAuth(req, res, next);
+  if (isValueEdgeProvider) return sessionAuth(req, res, next);
+  // No provider configured — should have been caught at startup
+  res.status(500).json({ error: { code: 'MISCONFIGURED', message: 'No auth provider configured. Set EXTERNAL_PROVIDER.' } });
 }
 
 // ─── GitHub OAuth cookie auth ───
@@ -39,43 +44,58 @@ async function githubAuth(req: Request, res: Response, next: NextFunction) {
   const session = await getSession(req, res);
 
   if (session.user && session.accessToken) {
-    req.user = session.user as any;
+    // Load the full user record from the DB (ensures FK-safe and includes role).
+    // If the DB was wiped but the cookie survived, upsert from session data.
+    const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+    if (dbUser) {
+      req.user = dbUser as any;
+    } else {
+      const su = session.user as any;
+      await db.insert(users).values({
+        id: su.id,
+        provider: su.provider || 'github',
+        providerId: su.providerId || su.id.replace('github:', ''),
+        name: su.name,
+        initials: su.initials || su.name?.slice(0, 2)?.toUpperCase() || '??',
+        avatarUrl: su.avatarUrl || null,
+      });
+      const [created] = await db.select().from(users).where(eq(users.id, su.id)).limit(1);
+      req.user = (created || su) as any;
+    }
     req.accessToken = session.accessToken;
     return next();
   }
 
-  // GET requests proceed without auth (shareable URLs)
-  if (req.method === 'GET') {
-    return next();
-  }
-
-  // Mutations require auth
   res.status(401).json({
     error: { code: 'UNAUTHORIZED', message: 'Not authenticated. Sign in via GitHub.' },
   });
 }
 
-// ─── Mock header auth (dev mode) ───
-async function mockAuth(req: Request, res: Response, next: NextFunction) {
-  // GET requests bypass auth (shareable URLs)
-  if (req.method === 'GET') {
-    const userId = req.headers['x-user-id'];
-    if (typeof userId === 'string' && userId.length > 0) {
-      // Support both old format (sarah-chen) and new format (mock:sarah-chen)
-      const lookupId = userId.includes(':') ? userId : `mock:${userId}`;
-      const [user] = await db.select().from(users).where(eq(users.id, lookupId)).limit(1);
-      if (user) {
-        req.user = user as any;
-        req.accessToken = 'mock-token';
-      }
+// ─── ValueEdge session-cookie auth ───
+async function sessionAuth(req: Request, res: Response, next: NextFunction) {
+  const session = await getSession(req, res);
+
+  if (session.user && session.accessToken) {
+    // Load the full user record from the DB so req.user includes role
+    const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+    if (dbUser) {
+      req.user = dbUser as any;
+    } else {
+      req.user = session.user as any;
     }
+    req.accessToken = session.accessToken;
     return next();
   }
 
-  // All mutations require auth. We deliberately use the same generic
-  // "Authentication failed" message for both "no credentials" and "wrong
-  // credentials" so an attacker can't distinguish the two cases and probe
-  // for valid user ids.
+  res.status(401).json({
+    error: { code: 'UNAUTHORIZED', message: 'Not authenticated. Sign in via ValueEdge.' },
+  });
+}
+
+// ─── Test-only mock auth (X-User-Id header, never used in production) ───
+// We deliberately use the same generic "Authentication failed" message for
+// both "no credentials" and "wrong credentials" so test failures are clear.
+async function mockAuth(req: Request, res: Response, next: NextFunction) {
   const userId = req.headers['x-user-id'];
   if (typeof userId !== 'string' || userId.length === 0) {
     res.status(401).json({
@@ -84,6 +104,7 @@ async function mockAuth(req: Request, res: Response, next: NextFunction) {
     return;
   }
 
+  // Support both old format (sarah-chen) and new format (mock:sarah-chen)
   const lookupId = userId.includes(':') ? userId : `mock:${userId}`;
   const [user] = await db.select().from(users).where(eq(users.id, lookupId)).limit(1);
   if (!user) {

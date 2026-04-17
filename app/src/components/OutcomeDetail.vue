@@ -8,6 +8,7 @@ import { checkOutcomeMismatches, mismatchSummary, type DateMismatch } from '../c
 import { formatHistory } from '../composables/useHistoryFormatter';
 import ConnectDialog from './ConnectDialog.vue';
 import ExternalLinkCard from './ExternalLinkCard.vue';
+import VEPublishDialog from './VEPublishDialog.vue';
 
 const router = useRouter();
 
@@ -51,6 +52,8 @@ const provider = ref<any>(null);
 const backendEntityTypes = ref<any[]>([]);
 const backendProviderLabel = ref('');
 const milestoneDate = ref<string | null>(null);
+const syncingTitle = ref(false);
+const syncingDescription = ref(false);
 // All milestones, used so history entries can render `milestoneId` changes
 // as the milestone's actual name ("moved to Q3 Release") rather than a UUID.
 const milestoneNames = ref<Record<string, string>>({});
@@ -62,9 +65,7 @@ const displayHistory = computed(() =>
   formatHistory(history.value, { milestoneNames: milestoneNames.value })
 );
 
-// Outcome is "draft" (in the connection-state sense) when it has no external links yet.
-// Only draft outcomes can be published — once linked, use Connect to add more links.
-const isDraftOutcome = computed(() => !(outcome.value?.externalLinks?.length));
+// Outcome is "draft" when it has no external links. Used by publish (hidden, kept for future use).
 
 // Entity types the user can publish to. PRs are excluded because they cannot
 // be created from a title + description alone (need a head/base branch).
@@ -224,6 +225,35 @@ async function addExternalLink() {
 
 // deleteExternalLink moved to ExternalLinkCard component
 
+async function setPrimaryLink(linkId: string | null) {
+  await api.setPrimaryLink(props.outcomeId, linkId);
+  emit('updated');
+  await load();
+}
+
+async function pullField(field: 'title' | 'description') {
+  const syncing = field === 'title' ? syncingTitle : syncingDescription;
+  syncing.value = true;
+  try {
+    await api.pullPrimary(props.outcomeId, field);
+    emit('updated');
+    await load();
+  } catch { /* error surfaced via toast */ } finally {
+    syncing.value = false;
+  }
+}
+
+async function pushField(field: 'title' | 'description') {
+  const syncing = field === 'title' ? syncingTitle : syncingDescription;
+  syncing.value = true;
+  try {
+    await api.pushPrimary(props.outcomeId, field);
+    await load();
+  } catch { /* error surfaced via toast */ } finally {
+    syncing.value = false;
+  }
+}
+
 async function publishOutcome() {
   const type = publishEntityType.value;
   const typeLabel = publishableEntityTypes.value.find((t: any) => t.name === type)?.label || type || 'item';
@@ -240,8 +270,11 @@ async function publishOutcome() {
   }
 }
 
-async function onConnected() {
+async function onConnected(link: any, asPrimary?: boolean) {
   showConnect.value = false;
+  if (asPrimary && link?.id) {
+    await api.setPrimaryLink(props.outcomeId, link.id);
+  }
   emit('updated');
   await load();
 }
@@ -290,7 +323,13 @@ function timeAgo(dateStr: string): string {
         <div class="header-top">
           <button class="close-btn" @click="emit('close')">×</button>
           <div class="header-info">
-            <h2 class="detail-title font-display">{{ outcome.title }}</h2>
+            <div class="field-with-sync">
+              <h2 class="detail-title font-display">{{ outcome.title }}</h2>
+              <template v-if="outcome.primaryLinkId">
+                <button class="btn-sync" @click="pullField('title')" :disabled="syncingTitle" title="Pull title from primary item">↓</button>
+                <button class="btn-sync" @click="pushField('title')" :disabled="syncingTitle" title="Push title to primary item">↑</button>
+              </template>
+            </div>
             <div class="header-meta">
               <span :class="['status-badge', `status-${outcome.status}`]">{{ outcome.status }}</span>
               <span v-if="outcome.effort" :class="['effort-badge', `effort-${outcome.effort.toLowerCase()}`]">{{ outcome.effort }}</span>
@@ -326,7 +365,13 @@ function timeAgo(dateStr: string): string {
 
       <!-- Description (read mode) -->
       <section v-else-if="outcome.description" class="section">
-        <h3 class="section-title">Description</h3>
+        <div class="section-title-row">
+          <h3 class="section-title">Description</h3>
+          <template v-if="outcome.primaryLinkId">
+            <button class="btn-sync" @click="pullField('description')" :disabled="syncingDescription" title="Pull description from primary item">↓</button>
+            <button class="btn-sync" @click="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
+          </template>
+        </div>
         <div class="description">{{ outcome.description }}</div>
       </section>
 
@@ -407,8 +452,11 @@ function timeAgo(dateStr: string): string {
           v-for="link in (outcome.externalLinks || [])"
           :key="link.id"
           :link="link"
+          :is-primary="link.id === outcome.primaryLinkId"
           @refreshed="load"
           @deleted="() => { emit('updated'); load(); }"
+          @set-primary="setPrimaryLink(link.id)"
+          @clear-primary="setPrimaryLink(null)"
         />
 
         <!-- Connect dialog -->
@@ -426,28 +474,42 @@ function timeAgo(dateStr: string): string {
           <button class="btn btn-sm" @click="showAddLink = false; newLinkUrl = ''">×</button>
         </div>
 
-        <!-- Publish picker — only when multiple entity types are publishable -->
-        <div v-if="showPublish" class="publish-form">
-          <select
-            v-if="publishableEntityTypes.length > 1"
-            v-model="publishEntityType"
-            class="input publish-type-select"
-            :disabled="publishing"
-          >
-            <option v-for="t in publishableEntityTypes" :key="t.name" :value="t.name">{{ t.label }}</option>
-          </select>
-          <span v-else class="publish-type-static">{{ publishableEntityTypes[0]?.label || 'Issue' }}</span>
-          <div class="publish-actions">
-            <button class="btn btn-sm btn-primary" @click="publishOutcome" :disabled="publishing">
-              {{ publishing ? 'Publishing...' : `Publish to ${backendProviderLabel || 'backend'}` }}
-            </button>
-            <button class="btn btn-sm" :disabled="publishing" @click="showPublish = false">Cancel</button>
-          </div>
-        </div>
+        <!-- ValueEdge multi-step publish dialog (hidden \u2014 kept for future use) -->
+        <!-- Generic publish picker (hidden \u2014 kept for future use) -->
+        <template v-if="false">
+          <VEPublishDialog
+            v-if="showPublish && provider?.name === 'valueedge'"
+            :outcome-id="outcomeId"
+            :entity-types="backendEntityTypes"
+            :provider-label="backendProviderLabel"
+            :title="outcome.title"
+            :description="outcome.description"
+            @published="onConnected"
+            @cancel="showPublish = false"
+          />
 
-        <div v-if="!showConnect && !showAddLink && !showPublish" class="link-actions-row">
+          <div v-if="showPublish && provider?.name !== 'valueedge'" class="publish-form">
+            <select
+              v-if="publishableEntityTypes.length > 1"
+              v-model="publishEntityType"
+              class="input publish-type-select"
+              :disabled="publishing"
+            >
+              <option v-for="t in publishableEntityTypes" :key="t.name" :value="t.name">{{ t.label }}</option>
+            </select>
+            <span v-else class="publish-type-static">{{ publishableEntityTypes[0]?.label || 'Issue' }}</span>
+            <div class="publish-actions">
+              <button class="btn btn-sm btn-primary" @click="publishOutcome" :disabled="publishing">
+                {{ publishing ? 'Publishing...' : `Publish to ${backendProviderLabel || 'backend'}` }}
+              </button>
+              <button class="btn btn-sm" :disabled="publishing" @click="showPublish = false">Cancel</button>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="!showConnect && !showAddLink" class="link-actions-row">
           <button class="btn btn-sm btn-primary" @click="showConnect = true">Connect to Issue</button>
-          <!-- Publish only available for draft outcomes (no existing links) and when an adapter is configured -->
+          <!-- Publish button hidden — kept for future use:
           <button
             v-if="isDraftOutcome && publishableEntityTypes.length > 0"
             class="btn btn-sm"
@@ -456,6 +518,7 @@ function timeAgo(dateStr: string): string {
           >
             Publish as {{ backendProviderLabel || 'Issue' }}
           </button>
+          -->
           <button class="btn btn-sm" @click="showAddLink = true">+ URL</button>
         </div>
       </section>
@@ -556,6 +619,18 @@ function timeAgo(dateStr: string): string {
 
 .header-info { flex: 1; min-width: 0; }
 .detail-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
+
+.field-with-sync { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.field-with-sync .detail-title { flex: 1; min-width: 0; }
+.section-title-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.section-title-row .section-title { margin-bottom: 0; flex: 1; }
+.btn-sync {
+  background: none; border: 1px solid var(--border); color: var(--text-3); cursor: pointer;
+  font-size: 12px; padding: 0 5px; border-radius: var(--radius-sm); line-height: 20px;
+  transition: all var(--transition); flex-shrink: 0;
+}
+.btn-sync:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sync:disabled { opacity: 0.3; cursor: default; }
 .header-meta { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
 .header-actions { display: flex; gap: 6px; margin-top: 10px; }
 .btn-danger { border-color: var(--red); color: var(--red); background: var(--red-dim); }
