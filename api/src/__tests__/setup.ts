@@ -87,6 +87,7 @@ beforeAll(async () => {
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'resolved')),
       notes TEXT,
       attributes JSONB NOT NULL DEFAULT '{}',
+      target_date DATE,
       score NUMERIC(12,2) NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

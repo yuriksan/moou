@@ -64,13 +64,13 @@ router.get('/', async (req, res) => {
 
     if (tagIdList.length > 0) {
       // Outcome has each required tag via outcome_tags OR via a linked motivation's tags
-      const placeholders = tagIdList.map((_, i) => `$${i + 1}`).join(', ');
+      const tagIdSqlValues = sql.join(tagIdList.map(id => sql`${id}::uuid`), sql`, `);
       const matchingOutcomes = await db.execute<{ outcome_id: string }>(sql`
         SELECT o.id AS outcome_id
         FROM outcomes o
         WHERE (
           SELECT count(DISTINCT req.tag_id)
-          FROM unnest(ARRAY[${sql.raw(tagIdList.map(id => `'${id}'::uuid`).join(', '))}]) AS req(tag_id)
+          FROM unnest(ARRAY[${tagIdSqlValues}]) AS req(tag_id)
           WHERE EXISTS (
             SELECT 1 FROM outcome_tags ot WHERE ot.outcome_id = o.id AND ot.tag_id = req.tag_id
           ) OR EXISTS (

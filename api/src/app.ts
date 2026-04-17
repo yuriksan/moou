@@ -62,7 +62,7 @@ const recalculateLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),
-  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered once per minute.' } },
+  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered 10 times per minute.' } },
 });
 
 // ─── Middleware ───

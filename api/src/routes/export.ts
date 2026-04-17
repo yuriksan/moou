@@ -526,8 +526,8 @@ router.get('/timeline', async (_req, res) => {
   tlSheet.views = [{ state: 'frozen', ySplit: 1 }];
   const tlLastCol = colLetter(tlSheet.columns.length);
   tlSheet.autoFilter = { from: 'A1', to: `${tlLastCol}${outcomeRows.length + 1}` };
-  // No sheet protection on Timeline — locked cells prevent row sorting even when sort is permitted.
-  // Read-only intent is indicated by grey cell styling. Validation (dropdowns) still applies.
+  // Protect sheet — only editable cells are unlocked
+  await tlSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
 
   // ════════════════════════════════════════════
   // Sheets 3–N: One per motivation type

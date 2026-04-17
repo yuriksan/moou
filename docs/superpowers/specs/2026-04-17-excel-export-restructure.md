@@ -45,7 +45,7 @@ This is the **single source of truth** for milestone properties. On import, moou
 | Tags | Comma-separated |
 | Motivation Count | Count (read-only) |
 | Top Motivation Type | The type of the highest-scoring linked motivation |
-| Motivation Summary | **Cell comment/note** with all linked motivations (type, title, score) — visible on hover |
+| Motivations | Count of linked motivations (read-only). **Cell note** with all linked motivations (type, title, score) — visible on hover |
 
 - **AutoFilter** enabled on all columns — users filter by milestone, status, effort, tags
 - **Pre-sorted** by milestone target date (looked up from Milestones sheet), then priority score desc
@@ -168,4 +168,4 @@ The import no longer infers milestone from sheet name — it reads the Milestone
 1. **ID columns** — visible (narrow), not hidden. Users can see them for reference.
 2. **No backward compatibility** — import rejects old-format exports (per-milestone sheets). Enforce by requiring a "Milestones" sheet; if absent, return a clear error: "This spreadsheet uses an older format. Please re-export from moou."
 3. **Milestone summaries** — pre-computed static values, not Excel formulas.
-4. **Read-only cells** — lock computed columns (Priority Score, Motivation Count, Score) using ExcelJS cell protection. The sheet uses `sheetProtection` with `sheet: true` but all editable cells get `protection: { locked: false }`, so only computed cells are locked.
+4. **Read-only cells** — lock computed columns (Priority Score, Motivation Count, Score) using ExcelJS cell protection. All sheets (including Timeline) use `sheetProtection` with `sheet: true` but all editable cells get `protection: { locked: false }`, so only computed cells are locked.
