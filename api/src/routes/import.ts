@@ -443,10 +443,14 @@ router.post('/timeline/apply', async (req, res) => {
           }
           newMilestoneId = matched.id;
         }
+        const rawEffort = diff.changes.effort?.new;
+        const rawStatus = diff.changes.status?.new;
+        const validatedEffort = typeof rawEffort === 'string' && validateField('effort', rawEffort) ? rawEffort : null;
+        const validatedStatus = typeof rawStatus === 'string' && validateField('status', rawStatus) ? rawStatus : 'draft';
         const [created] = await db.insert(outcomes).values({
           title: diff.changes.title?.new as string || diff.title,
-          effort: diff.changes.effort?.new as string || null,
-          status: (diff.changes.status?.new as string) || 'draft',
+          effort: validatedEffort,
+          status: validatedStatus,
           milestoneId: newMilestoneId,
           createdBy: req.user!.id,
         }).returning() as any[];
