@@ -478,7 +478,7 @@ router.get('/timeline', async (_req, res) => {
       status: o.status,
       priorityScore: Number(o.priorityScore),
       tags: sanitizeCell(o.tags),
-      primaryLinkUrl: o.primaryLinkUrl || '',
+      primaryLinkUrl: sanitizeCell(o.primaryLinkUrl || ''),
       motivationCount: o.motivationCount,
       topMotivationType: o.topMotivationType || '',
       ...Object.fromEntries(sortedTagNames.map(t => [`tag_${t}`, o.tagSet.has(t)])),

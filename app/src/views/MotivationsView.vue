@@ -8,6 +8,7 @@ import { extractId, buildSlugId } from '../composables/useSlug';
 import MotivationDetail from '../components/MotivationDetail.vue';
 import MotivationForm from '../components/MotivationForm.vue';
 import { checkMismatch, type DateMismatch } from '../composables/useDateMismatch';
+import { stripProvider } from '../lib/userId';
 
 const route = useRoute();
 const router = useRouter();
@@ -117,12 +118,6 @@ function getRowMismatch(m: any): DateMismatch | null {
   return checkMismatch({ title: m.title, attributes: m.attributes }, m.earliestMilestoneDate);
 }
 
-function stripProvider(id: string | null): string {
-  if (!id) return '';
-  const i = id.indexOf(':');
-  return i >= 0 ? id.slice(i + 1) : id;
-}
-
 function pillClass(typeName: string): string {
   const map: Record<string, string> = {
     'Customer Demand': 'pill-customer',
@@ -167,7 +162,7 @@ function pillClass(typeName: string): string {
         <span
           v-for="tag in motivationTags" :key="tag.id"
           :class="['tag', { 'filter-active': tagFilter.includes(tag.name) }]"
-          :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+          :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
           @click="toggleTag(tag.name)"
         >{{ tag.emoji }} {{ tag.name }}</span>
 
@@ -202,7 +197,7 @@ function pillClass(typeName: string): string {
               <span
                 v-for="tag in m.tags" :key="tag.id"
                 class="tag row-tag"
-                :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
                 @click.stop="toggleTag(tag.name)"
               >{{ tag.emoji }} {{ tag.name }}</span>
             </div>

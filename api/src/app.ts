@@ -57,12 +57,12 @@ const mutationLimiter = rateLimit({
 });
 
 const recalculateLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 10,                            // 10 recalculations per minute per IP
+  windowMs: 5 * 60 * 1000,
+  limit: 1,                             // 1 recalculation every 5 minutes per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),
-  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered 10 times per minute.' } },
+  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered once every 5 minutes.' } },
 });
 
 // ─── Middleware ───

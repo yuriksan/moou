@@ -8,6 +8,7 @@ import { extractId, buildSlugId } from '../composables/useSlug';
 import OutcomeDetail from '../components/OutcomeDetail.vue';
 import OutcomeForm from '../components/OutcomeForm.vue';
 import type { MismatchLevel } from '../composables/useDateMismatch';
+import { stripProvider } from '../lib/userId';
 
 const route = useRoute();
 const router = useRouter();
@@ -130,12 +131,6 @@ function toggleTag(name: string) {
   }
 }
 
-function stripProvider(id: string | null): string {
-  if (!id) return '';
-  const i = id.indexOf(':');
-  return i >= 0 ? id.slice(i + 1) : id;
-}
-
 function effortClass(effort: string | null) {
   return effort ? `effort-${effort.toLowerCase()}` : '';
 }
@@ -189,7 +184,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
         <span
           v-for="tag in outcomeTags" :key="tag.id"
           :class="['tag', { 'filter-active': tagFilter.includes(tag.name) }]"
-          :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+          :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
           @click="toggleTag(tag.name)"
         >{{ tag.emoji }} {{ tag.name }}</span>
 
@@ -230,7 +225,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
               <span
                 v-for="tag in o.tags" :key="tag.id"
                 class="tag row-tag"
-                :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
                 @click.stop="toggleTag(tag.name)"
               >{{ tag.emoji }} {{ tag.name }}</span>
             </div>

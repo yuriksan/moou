@@ -321,7 +321,7 @@ async function onOutcomeSaved(outcome: any) {
               <span
                 v-for="tag in o.tags" :key="tag.id"
                 class="tag card-tag"
-                :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
                 @click.stop="toggleTag(tag.name)"
               >{{ tag.emoji }} {{ tag.name }}</span>
             </template>
@@ -358,7 +358,7 @@ async function onOutcomeSaved(outcome: any) {
         <span
           v-for="tag in outcomeTags" :key="tag.id"
           :class="['tag', { 'filter-active': tagFilter.includes(tag.name) }]"
-          :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+          :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
           @click="toggleTag(tag.name)"
         >{{ tag.emoji }} {{ tag.name }}</span>
         <button v-if="tagFilter.length" class="btn btn-sm clear-filter" @click="tagFilter = []">Clear</button>
@@ -431,7 +431,7 @@ async function onOutcomeSaved(outcome: any) {
                   <span
                     v-for="tag in o.tags" :key="tag.id"
                     class="tag card-tag"
-                    :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                    :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
                     @click.stop="toggleTag(tag.name)"
                   >{{ tag.emoji }} {{ tag.name }}</span>
                 </template>
