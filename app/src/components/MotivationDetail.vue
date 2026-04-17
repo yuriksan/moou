@@ -199,11 +199,11 @@ function formatAttrValue(value: unknown): string {
         <h3 class="section-title">Score</h3>
         <div class="score-display">
           <span class="score-value font-display">{{ Number(motivation.score).toLocaleString('en', { maximumFractionDigits: 0 }) }}</span>
-          <button type="button" class="score-label score-info-toggle" @click="showScoreInfo = !showScoreInfo">
+          <button type="button" class="score-label score-info-toggle" :aria-expanded="showScoreInfo" aria-controls="score-info-panel" @click="showScoreInfo = !showScoreInfo">
             {{ showScoreInfo ? 'hide breakdown' : 'how is this calculated?' }}
           </button>
         </div>
-        <div v-if="showScoreInfo" class="score-info">
+        <div v-if="showScoreInfo" id="score-info-panel" class="score-info">
           <p v-if="motivation.scoringDescription" class="score-info-desc">{{ motivation.scoringDescription }}</p>
           <code v-if="motivation.scoringFormula" class="score-info-formula">{{ motivation.scoringFormula }}</code>
         </div>

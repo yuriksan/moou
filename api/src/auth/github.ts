@@ -11,6 +11,29 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
 const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3000/auth/callback';
 
+/**
+ * Sanitise a returnTo redirect value to prevent open-redirect attacks.
+ * Only absolute URLs whose origin is listed in CORS_ORIGINS are allowed.
+ * Relative paths starting with a single `/` are allowed.
+ * If CORS_ORIGINS is empty/unset, the origin check is skipped (no
+ * restrictions configured).
+ */
+export function sanitizeRedirect(redirectTo: string): string {
+  if (redirectTo === '/') return redirectTo;
+  try {
+    const url = new URL(redirectTo);
+    const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (allowed.length > 0 && !allowed.includes(url.origin)) return '/';
+    return redirectTo;
+  } catch {
+    // Not a valid absolute URL — only allow paths starting with a single slash
+    if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
+      return '/';
+    }
+    return redirectTo;
+  }
+}
+
 // GET /auth/github — Redirect to GitHub OAuth
 router.get('/github', async (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
@@ -131,19 +154,8 @@ router.get('/callback', async (req, res) => {
   delete session.returnTo;
   await session.save();
 
-  // Prevent open redirect: only allow origins listed in CORS_ORIGINS
-  if (redirectTo !== '/') {
-    try {
-      const url = new URL(redirectTo);
-      const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-      if (!allowed.includes(url.origin)) redirectTo = '/';
-    } catch {
-      // Not a valid absolute URL — only allow paths starting with a single slash
-      if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
-        redirectTo = '/';
-      }
-    }
-  }
+  redirectTo = sanitizeRedirect(redirectTo);
+
   res.redirect(redirectTo);
 });
 
