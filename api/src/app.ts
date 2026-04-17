@@ -40,7 +40,7 @@ function isTestEnv(): boolean {
 
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 1000,                          // 1000 requests per minute per IP
+  limit: 100,                           // 100 requests per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),

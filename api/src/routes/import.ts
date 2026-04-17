@@ -192,7 +192,7 @@ router.post('/timeline/diff', async (req, res) => {
 
         // Milestone from column (not sheet name)
         const newMilestoneName = cellStr(row, tlHeaders, 'Milestone');
-        const currentMsName = currentMilestones.find(m => m.id === existing.milestoneId)?.name || '';
+        const currentMsName = milestoneMap.get(existing.milestoneId)?.name || '';
         if (newMilestoneName !== currentMsName) {
           changes.milestone = { old: currentMsName || null, new: newMilestoneName || null };
         }
