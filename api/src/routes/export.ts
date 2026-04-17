@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES, safeSheetName } from '../lib/input-validation.js';
+import { getAdapter } from '../providers/adapter.js';
 
 const router = Router();
 
@@ -46,6 +47,7 @@ interface OutcomeRow {
   milestoneId: string | null;
   milestoneName: string | null;
   milestoneDate: string | null;
+  tagSet: Set<string>;
   tags: string;
   motivationCount: number;
   topMotivationType: string | null;
@@ -61,6 +63,7 @@ interface MotivationRow {
   typeName: string;
   score: string | null;
   status: string;
+  targetDate: string | null;
   attributes: Record<string, unknown>;
 }
 
@@ -106,6 +109,7 @@ async function buildStructuredData() {
     motivationType: motivationTypes.name,
     motivationScore: motivations.score,
     motivationStatus: motivations.status,
+    motivationTargetDate: motivations.targetDate,
     motivationAttributes: motivations.attributes,
   }).from(outcomeMotivations)
     .innerJoin(motivations, eq(outcomeMotivations.motivationId, motivations.id))
@@ -114,18 +118,28 @@ async function buildStructuredData() {
   // Fetch motivation type schemas
   const allTypes = await db.select().from(motivationTypes);
 
-  // Fetch tags
-  const allOutcomeTags = await db.select({
-    outcomeId: outcomeTags.outcomeId,
-    tagName: tags.name,
-  }).from(outcomeTags)
-    .innerJoin(tags, eq(outcomeTags.tagId, tags.id));
+  // Fetch effective tags per outcome: union of direct outcome_tags and tags inherited from linked motivations
+  const allOutcomeTags = await db.execute<{ outcome_id: string; tag_name: string }>(sql`
+    SELECT o.id AS outcome_id, t.name AS tag_name
+    FROM outcomes o
+    JOIN (
+      SELECT ot.outcome_id, t.name FROM outcome_tags ot JOIN tags t ON t.id = ot.tag_id
+      UNION
+      SELECT om.outcome_id, t.name
+      FROM outcome_motivations om
+        JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
+        JOIN tags t ON t.id = mt.tag_id
+    ) t ON t.outcome_id = o.id
+  `).then(r => r.rows.map(row => ({ outcomeId: row.outcome_id, tagName: row.tag_name })));
 
-  const outcomeTagMap = new Map<string, string[]>();
+  const outcomeTagMap = new Map<string, Set<string>>();
+  const allTagNames = new Set<string>();
   for (const ot of allOutcomeTags) {
-    if (!outcomeTagMap.has(ot.outcomeId)) outcomeTagMap.set(ot.outcomeId, []);
-    outcomeTagMap.get(ot.outcomeId)!.push(ot.tagName);
+    if (!outcomeTagMap.has(ot.outcomeId)) outcomeTagMap.set(ot.outcomeId, new Set());
+    outcomeTagMap.get(ot.outcomeId)!.add(ot.tagName);
+    allTagNames.add(ot.tagName);
   }
+  const sortedTagNames = [...allTagNames].sort((a, b) => a.localeCompare(b));
 
   // Group links by outcome
   const linksByOutcome = new Map<string, typeof allLinks>();
@@ -137,7 +151,7 @@ async function buildStructuredData() {
   // Build outcome rows for Timeline sheet
   const outcomeRows: OutcomeRow[] = allOutcomes.map(o => {
     const oLinks = linksByOutcome.get(o.id) || [];
-    const oTags = outcomeTagMap.get(o.id)?.join(', ') || '';
+    const oTags = [...(outcomeTagMap.get(o.id) ?? [])].join(', ');
 
     // Find top motivation (highest score)
     let topType: string | null = null;
@@ -159,6 +173,7 @@ async function buildStructuredData() {
       milestoneId: o.milestoneId,
       milestoneName: o.milestoneName,
       milestoneDate: o.milestoneDate,
+      tagSet: outcomeTagMap.get(o.id) || new Set(),
       tags: oTags,
       motivationCount: oLinks.length,
       topMotivationType: topType,
@@ -211,12 +226,13 @@ async function buildStructuredData() {
         typeName: link.motivationType,
         score: link.motivationScore,
         status: link.motivationStatus,
+        targetDate: link.motivationTargetDate ?? null,
         attributes: (link.motivationAttributes as Record<string, unknown>) || {},
       });
     }
   }
 
-  return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name) };
+  return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name), sortedTagNames };
 }
 
 /** Convert a 1-based column number to an Excel column letter string (1=A, 26=Z, 27=AA, etc.) */
@@ -355,7 +371,9 @@ function jsonSchemaToValidation(propSchema: Record<string, unknown>, propName: s
 // ─── GET /export/timeline ───
 
 router.get('/timeline', async (_req, res) => {
-  const { outcomeRows, milestoneRows, motivationsByType, allTypes } = await buildStructuredData();
+  const { outcomeRows, milestoneRows, motivationsByType, allTypes, sortedTagNames } = await buildStructuredData();
+  const adapter = getAdapter();
+  const primaryLinkHeader = adapter?.label ?? 'Primary Issue';
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'moou';
@@ -423,13 +441,15 @@ router.get('/timeline', async (_req, res) => {
     { header: 'Outcome', key: 'title', width: 35 },
     { header: 'Description', key: 'description', width: 40 },
     { header: 'Milestone', key: 'milestone', width: 22 },
+    { header: 'Milestone Date', key: 'milestoneDate', width: 14 },
     { header: 'Effort', key: 'effort', width: 8 },
     { header: 'Status', key: 'status', width: 14 },
     { header: 'Priority Score', key: 'priorityScore', width: 14 },
     { header: 'Tags', key: 'tags', width: 20 },
-    { header: 'Primary Issue', key: 'primaryLinkUrl', width: 30 },
+    { header: primaryLinkHeader, key: 'primaryLinkUrl', width: 30 },
     { header: 'Motivations', key: 'motivationCount', width: 12 },
     { header: 'Top Type', key: 'topMotivationType', width: 18 },
+    ...sortedTagNames.map(t => ({ header: `Tag: ${t}`, key: `tag_${t}`, width: 10, hidden: true })),
   ];
   applyHeaderStyle(tlSheet.getRow(1));
 
@@ -453,6 +473,7 @@ router.get('/timeline', async (_req, res) => {
       title: sanitizeCell(o.title),
       description: sanitizeCell(o.description),
       milestone: o.milestoneName || '',
+      milestoneDate: null,
       effort: o.effort || '',
       status: o.status,
       priorityScore: Number(o.priorityScore),
@@ -460,6 +481,7 @@ router.get('/timeline', async (_req, res) => {
       primaryLinkUrl: o.primaryLinkUrl || '',
       motivationCount: o.motivationCount,
       topMotivationType: o.topMotivationType || '',
+      ...Object.fromEntries(sortedTagNames.map(t => [`tag_${t}`, o.tagSet.has(t)])),
     });
     row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
 
@@ -470,12 +492,19 @@ router.get('/timeline', async (_req, res) => {
       linkCell.font = { ...linkCell.font, color: { argb: 'FF2A7AC8' }, underline: true };
     }
 
+    // Milestone Date: VLOOKUP formula against Milestones sheet (col B=Name, col C=Target Date)
+    const milestoneDateCell = row.getCell('milestoneDate');
+    milestoneDateCell.value = { formula: `IFERROR(VLOOKUP(D${row.number},Milestones!$B:$C,2,FALSE),"")` } as ExcelJS.CellFormulaValue;
+    milestoneDateCell.numFmt = 'yyyy-mm-dd';
+    applyReadOnly(milestoneDateCell);
+
     // Read-only cells
     applyReadOnly(row.getCell('id'));
     applyReadOnly(row.getCell('priorityScore'));
     applyReadOnly(row.getCell('primaryLinkUrl'));
     applyReadOnly(row.getCell('motivationCount'));
     applyReadOnly(row.getCell('topMotivationType'));
+    for (const t of sortedTagNames) applyReadOnly(row.getCell(`tag_${t}`));
 
     // Editable cells
     for (const key of ['title', 'description', 'milestone', 'effort', 'status', 'tags'] as const) applyEditable(row.getCell(key));
@@ -497,18 +526,25 @@ router.get('/timeline', async (_req, res) => {
   tlSheet.views = [{ state: 'frozen', ySplit: 1 }];
   const tlLastCol = colLetter(tlSheet.columns.length);
   tlSheet.autoFilter = { from: 'A1', to: `${tlLastCol}${outcomeRows.length + 1}` };
-  await tlSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
+  // No sheet protection on Timeline — locked cells prevent row sorting even when sort is permitted.
+  // Read-only intent is indicated by grey cell styling. Validation (dropdowns) still applies.
 
   // ════════════════════════════════════════════
   // Sheets 3–N: One per motivation type
   // ════════════════════════════════════════════
   for (const type of allTypes) {
-    const typeRows = motivationsByType.get(type.name) || [];
-    if (typeRows.length === 0) continue; // skip empty types
-
     const schema = type.attributeSchema as { properties?: Record<string, Record<string, unknown>> };
     const attrProps = schema.properties || {};
     const attrKeys = Object.keys(attrProps);
+
+    const typeRows = (motivationsByType.get(type.name) || [])
+      .slice()
+      .sort((a, b) => {
+        const da = (a.targetDate ?? '9999') as string;
+        const db_ = (b.targetDate ?? '9999') as string;
+        return da < db_ ? -1 : da > db_ ? 1 : 0;
+      });
+    if (typeRows.length === 0) continue; // skip empty types
 
     // Sheet name sanitisation — shared with import.ts (via safeSheetName from input-validation)
     // so import can find these sheets by applying the same transform to motivation_types.name.
@@ -593,7 +629,7 @@ router.get('/timeline', async (_req, res) => {
 
   // ─── Send response ───
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="moou-timeline-${new Date().toISOString().split('T')[0]}.xlsx"`);
+  res.setHeader('Content-Disposition', `attachment; filename="timeline-${new Date().toISOString().split('T')[0]}.xlsx"`);
   await workbook.xlsx.write(res);
   res.end();
 });
@@ -635,7 +671,7 @@ router.get('/timeline/markdown', async (_req, res) => {
   }
 
   res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="moou-timeline-${new Date().toISOString().split('T')[0]}.md"`);
+  res.setHeader('Content-Disposition', `attachment; filename="timeline-${new Date().toISOString().split('T')[0]}.md"`);
   res.send(md);
 });
 

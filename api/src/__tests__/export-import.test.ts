@@ -199,7 +199,7 @@ describe('Export', () => {
     const scoreCol = headers.indexOf('Priority Score');
 
     // Sheet protection should be enabled
-    expect(sheet.sheetProtection).toBeDefined();
+    expect((sheet as any).sheetProtection).toBeDefined();
 
     // Editable cell (Effort) should be explicitly unlocked
     const row2 = sheet.getRow(2);

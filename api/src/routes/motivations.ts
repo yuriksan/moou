@@ -13,6 +13,15 @@ import { broadcast } from '../sse/emitter.js';
 
 const router = Router();
 
+/** Extract the canonical target date from motivation attributes using the type's schema. */
+function derivedTargetDate(attrs: Record<string, unknown>, schema: Record<string, unknown>): string | null {
+  const props = (schema?.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const dateKey = Object.keys(props).find(k => props[k]?.format === 'date');
+  if (!dateKey) return null;
+  const val = attrs[dateKey];
+  return typeof val === 'string' && val ? val : null;
+}
+
 // POST /motivations
 router.post('/', async (req, res) => {
   const { title, typeId, attributes, notes, status, tagIds } = req.body;
@@ -41,6 +50,7 @@ router.post('/', async (req, res) => {
 
   const [motivation] = await db.insert(motivations).values({
     title, typeId, attributes: attrs, notes,
+    targetDate: derivedTargetDate(attrs, mt.attributeSchema),
     status: status ?? 'active',
     score: '0', // scoring engine will compute
     createdBy: req.user!.id,
@@ -120,6 +130,11 @@ router.get('/', async (req, res) => {
       JOIN milestones m ON m.id = o.milestone_id
       WHERE om.motivation_id = ${motivations.id}
     )`,
+    tags: sql<{id: string; name: string; emoji: string|null; colour: string|null}[]>`coalesce(
+      (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'emoji', t.emoji, 'colour', t.colour))
+       FROM motivation_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.motivation_id = ${motivations.id}),
+      '[]'::json
+    )`,
   }).from(motivations)
     .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id))
     .where(where)
@@ -142,6 +157,7 @@ router.get('/:id', async (req, res) => {
     status: motivations.status,
     notes: motivations.notes,
     attributes: motivations.attributes,
+    targetDate: motivations.targetDate,
     score: motivations.score,
     createdBy: motivations.createdBy,
     createdAt: motivations.createdAt,
@@ -198,9 +214,12 @@ router.put('/:id', async (req, res) => {
     }
   }
 
+  const [mt] = await db.select().from(motivationTypes).where(eq(motivationTypes.id, existing.typeId)).limit(1);
+
   const [updated] = await db.update(motivations).set({
     title: title ?? existing.title,
     attributes: newAttrs,
+    targetDate: mt ? derivedTargetDate(newAttrs, mt.attributeSchema) : undefined,
     notes: notes !== undefined ? notes : existing.notes,
     updatedAt: new Date(),
   }).where(eq(motivations.id, req.params.id)).returning() as any[];

@@ -38,6 +38,7 @@ const showAllHistory = ref(false);
 const newComment = ref('');
 const loading = ref(true);
 const editing = ref(false);
+const outcomeFormRef = ref<any>(null);
 const showNewMotivation = ref(false);
 const showLinkMotivation = ref(false);
 const linkSearch = ref('');
@@ -324,47 +325,55 @@ function timeAgo(dateStr: string): string {
           <button class="close-btn" @click="emit('close')">×</button>
           <div class="header-info">
             <div class="field-with-sync">
-              <h2 class="detail-title font-display">{{ outcome.title }}</h2>
+              <h2 class="detail-title font-display editable-field" title="Click to edit" @click="editing = true">{{ outcome.title }}</h2>
               <template v-if="outcome.primaryLinkId">
                 <button class="btn-sync" @click="pullField('title')" :disabled="syncingTitle" title="Pull title from primary item">↓</button>
                 <button class="btn-sync" @click="pushField('title')" :disabled="syncingTitle" title="Push title to primary item">↑</button>
               </template>
             </div>
             <div class="header-meta">
-              <span :class="['status-badge', `status-${outcome.status}`]">{{ outcome.status }}</span>
-              <span v-if="outcome.effort" :class="['effort-badge', `effort-${outcome.effort.toLowerCase()}`]">{{ outcome.effort }}</span>
+              <span :class="['status-badge', `status-${outcome.status}`]" class="editable-field" title="Click to edit" @click="editing = true">{{ outcome.status }}</span>
+              <span v-if="outcome.effort" :class="['effort-badge', `effort-${outcome.effort.toLowerCase()}`]" class="editable-field" title="Click to edit" @click="editing = true">{{ outcome.effort }}</span>
               <span
                 v-for="tag in outcome.tags"
                 :key="tag.id"
-                class="tag clickable-tag"
+                :class="['tag', 'clickable-tag', { 'tag-inherited': tag.inherited }]"
                 :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
-                :title="`Show outcomes tagged ${tag.name}`"
+                :title="tag.inherited ? `Inherited from a linked motivation — edit the motivation to remove` : `Show outcomes tagged ${tag.name}`"
                 @click="navigateToTag(tag.name)"
               >
-                {{ tag.emoji }} {{ tag.name }}
+                {{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↗</span>
               </span>
             </div>
           </div>
         </div>
         <div class="header-actions">
-          <button class="btn btn-sm" @click="editing = true">Edit</button>
-          <button class="btn btn-sm" @click="togglePin">
-            {{ outcome.pinned ? 'Unpin' : 'Pin' }}
-          </button>
-          <button class="btn btn-sm btn-danger" @click="deleteOutcome">Delete</button>
+          <template v-if="editing">
+            <button class="btn btn-sm" @click="editing = false">Cancel</button>
+            <button class="btn btn-sm btn-primary" @click="outcomeFormRef?.save()">Save Changes</button>
+          </template>
+          <template v-else>
+            <button class="btn btn-sm" @click="editing = true">Edit</button>
+            <button class="btn btn-sm" @click="togglePin">
+              {{ outcome.pinned ? 'Unpin' : 'Pin' }}
+            </button>
+            <button class="btn btn-sm btn-danger" @click="deleteOutcome">Delete</button>
+          </template>
         </div>
       </div>
 
       <!-- Edit Form -->
       <OutcomeForm
         v-if="editing"
+        ref="outcomeFormRef"
         :outcome="outcome"
+        :hide-actions="true"
         @saved="onEditSaved"
         @cancel="editing = false"
       />
 
       <!-- Description (read mode) -->
-      <section v-else-if="outcome.description" class="section">
+      <section v-else-if="outcome.description" class="section editable-section" @click="editing = true" title="Click to edit">
         <div class="section-title-row">
           <h3 class="section-title">Description</h3>
           <template v-if="outcome.primaryLinkId">
@@ -619,6 +628,10 @@ function timeAgo(dateStr: string): string {
 
 .header-info { flex: 1; min-width: 0; }
 .detail-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.editable-field { cursor: pointer; }
+.editable-field:hover { opacity: 0.75; }
+.editable-section { cursor: pointer; }
+.editable-section:hover { background: var(--bg-hover); }
 
 .field-with-sync { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .field-with-sync .detail-title { flex: 1; min-width: 0; }

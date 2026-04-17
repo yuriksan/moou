@@ -40,7 +40,7 @@ function isTestEnv(): boolean {
 
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 100,                           // 100 requests per minute per IP
+  limit: 1000,                          // 1000 requests per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),
@@ -49,7 +49,7 @@ const globalLimiter = rateLimit({
 
 const mutationLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 30,                            // 30 mutations per minute per IP
+  limit: 300,                           // 300 mutations per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: (req) => isTestEnv() || req.method === 'GET',
@@ -57,12 +57,12 @@ const mutationLimiter = rateLimit({
 });
 
 const recalculateLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  limit: 1,                             // 1 recalculation every 5 minutes per IP
+  windowMs: 60 * 1000,
+  limit: 10,                            // 10 recalculations per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),
-  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered once every 5 minutes.' } },
+  message: { error: { code: 'RATE_LIMITED', message: 'Recalculation can only be triggered once per minute.' } },
 });
 
 // ─── Middleware ───

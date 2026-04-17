@@ -105,6 +105,7 @@ export async function seedDemo() {
     title: 'Acme Corp — masking perf blocker',
     typeId: typeId('Customer Demand'),
     attributes: { customer_name: 'Acme Corp', segment: 'enterprise', strategic_flag: true, revenue_at_risk: 1800000, revenue_opportunity: 0, deal_stage: 'renewal', target_date: '2026-04-17', impact_type: 'blocker', confidence: 0.9 },
+    targetDate: '2026-04-17',
     createdBy: 'mock:james-obi',
   }).returning() as any[];
 
@@ -112,6 +113,7 @@ export async function seedDemo() {
     title: 'DataFlow Inc — masking SLA breach',
     typeId: typeId('Customer Demand'),
     attributes: { customer_name: 'DataFlow Inc', segment: 'enterprise', revenue_at_risk: 500000, revenue_opportunity: 200000, deal_stage: 'live', target_date: '2026-05-30', impact_type: 'major', confidence: 0.8 },
+    targetDate: '2026-05-30',
     createdBy: 'mock:james-obi',
   }).returning() as any[];
 
@@ -126,6 +128,7 @@ export async function seedDemo() {
     title: 'GDPR Art. 44 — data residency mandate',
     typeId: typeId('Compliance'),
     attributes: { regulation: 'GDPR Article 44', mandate_deadline: '2026-05-16', penalty_severity: 'critical', legal_exposure: 5000000, confidence: 0.95 },
+    targetDate: '2026-05-16',
     createdBy: 'mock:anna-mueller',
   }).returning() as any[];
 
@@ -133,6 +136,7 @@ export async function seedDemo() {
     title: 'MegaCorp EU — data must stay in EU',
     typeId: typeId('Customer Demand'),
     attributes: { customer_name: 'MegaCorp EU', segment: 'enterprise', strategic_flag: true, revenue_at_risk: 1200000, deal_stage: 'renewal', target_date: '2026-05-16', impact_type: 'blocker', confidence: 0.85 },
+    targetDate: '2026-05-16',
     createdBy: 'mock:anna-mueller',
   }).returning() as any[];
 
@@ -140,6 +144,7 @@ export async function seedDemo() {
     title: 'CTO mandate: migrate to GitHub Actions',
     typeId: typeId('Internal Mandate'),
     attributes: { stakeholder: 'VP Engineering', mandate_type: 'tooling', target_date: '2026-06-02', business_justification: 'Standardise on GitHub ecosystem', priority_override: 'critical' },
+    targetDate: '2026-06-02',
     createdBy: 'mock:dev-patel',
   }).returning() as any[];
 
@@ -154,6 +159,7 @@ export async function seedDemo() {
     title: 'GlobalBank — audit log for SOC2',
     typeId: typeId('Customer Demand'),
     attributes: { customer_name: 'GlobalBank', segment: 'enterprise', revenue_at_risk: 800000, deal_stage: 'live', target_date: '2026-06-30', impact_type: 'major', confidence: 0.7 },
+    targetDate: '2026-06-30',
     createdBy: 'mock:james-obi',
   }).returning() as any[];
 
@@ -168,6 +174,7 @@ export async function seedDemo() {
     title: 'BetaCo — renewal needs SSO',
     typeId: typeId('Customer Demand'),
     attributes: { customer_name: 'BetaCo', segment: 'enterprise', revenue_at_risk: 500000, deal_stage: 'renewal', target_date: '2026-08-15', impact_type: 'major', confidence: 0.6 },
+    targetDate: '2026-08-15',
     createdBy: 'mock:james-obi',
   }).returning() as any[];
 

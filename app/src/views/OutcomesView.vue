@@ -130,6 +130,12 @@ function toggleTag(name: string) {
   }
 }
 
+function stripProvider(id: string | null): string {
+  if (!id) return '';
+  const i = id.indexOf(':');
+  return i >= 0 ? id.slice(i + 1) : id;
+}
+
 function effortClass(effort: string | null) {
   return effort ? `effort-${effort.toLowerCase()}` : '';
 }
@@ -200,6 +206,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
         <span class="col-effort">Effort</span>
         <span class="col-motivations">Motivations</span>
         <span class="col-status">Status</span>
+        <span class="col-creator">Creator</span>
       </div>
 
       <!-- Rows -->
@@ -215,7 +222,18 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
           </span>
           <span :class="['col-rank font-mono', i < 3 ? `rank-${i+1}` : '']">{{ o.pinned ? '📌' : `#${i+1}` }}</span>
           <div class="col-title">
-            <div class="row-title">{{ o.title }}</div>
+            <div class="row-title-line">
+              <div class="row-title">{{ o.title }}</div>
+              <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="primary-link-icon" title="Open primary issue" @click.stop>↗</a>
+            </div>
+            <div v-if="o.tags && o.tags.length" class="row-tags">
+              <span
+                v-for="tag in o.tags" :key="tag.id"
+                class="tag row-tag"
+                :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                @click.stop="toggleTag(tag.name)"
+              >{{ tag.emoji }} {{ tag.name }}</span>
+            </div>
           </div>
           <span class="col-score font-mono" :class="Number(o.priorityScore) > 1000 ? 'score-high' : Number(o.priorityScore) > 100 ? 'score-mid' : 'score-low'">
             {{ Number(o.priorityScore).toLocaleString('en', { maximumFractionDigits: 0 }) }}
@@ -225,6 +243,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
           </span>
           <span class="col-motivations font-mono">{{ o.motivationCount || 0 }}</span>
           <span :class="['col-status status-badge', `status-${o.status}`]">{{ o.status }}</span>
+          <span class="col-creator">{{ stripProvider(o.createdBy) }}</span>
         </div>
         <div v-if="filteredOutcomes.length === 0" class="empty">No outcomes match filters</div>
       </div>
@@ -331,7 +350,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
 /* List */
 .list-header {
   display: grid;
-  grid-template-columns: 20px 40px 1fr 100px 60px 90px 80px;
+  grid-template-columns: 20px 40px 1fr 100px 60px 90px 80px 120px;
   gap: 12px;
   padding: 8px 24px;
   font-size: 10px;
@@ -344,7 +363,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
 .list-body { flex: 1; overflow-y: auto; }
 .outcome-row {
   display: grid;
-  grid-template-columns: 20px 40px 1fr 100px 60px 90px 80px;
+  grid-template-columns: 20px 40px 1fr 100px 60px 90px 80px 120px;
   gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border-subtle);
@@ -355,18 +374,28 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
 .outcome-row:hover { background: var(--bg-hover); }
 .outcome-row.selected { background: var(--accent-dim); border-left: 2px solid var(--accent); padding-left: 22px; }
 
-.col-rank { font-size: 13px; font-weight: 600; color: var(--text-3); }
+.col-rank { text-align: center; }
+.list-body .col-rank { font-size: 13px; font-weight: 600; color: var(--text-3); }
 .rank-1 { color: var(--accent); }
 .rank-2 { color: var(--text-1); }
 .rank-3 { color: var(--text-2); }
-.row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-title { display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 2px; }
+.row-title-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.row-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.row-tag { font-size: 10px; padding: 1px 7px; cursor: pointer; }
+.primary-link-icon { font-size: 11px; color: var(--text-3); text-decoration: none; flex-shrink: 0; }
+.primary-link-icon:hover { color: var(--accent); }
 .col-score { text-align: right; font-weight: 600; }
 .score-high { color: var(--accent); }
 .score-mid { color: var(--teal); }
 .score-low { color: var(--text-2); }
 .col-effort { text-align: center; }
-.col-motivations { text-align: center; font-size: 12px; color: var(--text-2); }
+.col-motivations { text-align: center; }
+.list-body .col-motivations { font-size: 12px; color: var(--text-2); }
 .col-status { text-align: center; }
+.col-creator { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-body .col-creator { font-size: 11px; color: var(--text-2); }
 .col-flag { display: flex; align-items: center; justify-content: center; }
 .mismatch-dot { width: 8px; height: 8px; border-radius: 50%; }
 .mismatch-dot-critical { background: var(--red); }

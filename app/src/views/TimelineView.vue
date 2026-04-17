@@ -315,7 +315,18 @@ async function onOutcomeSaved(outcome: any) {
           @dragstart="onDragStart($event, o.id)"
           @dragend="onDragEnd"
         >
-          <div class="card-title">{{ o.title }}</div>
+          <div class="card-title-row">
+            <span class="card-title">{{ o.title }}</span>
+            <template v-if="o.tags && o.tags.length">
+              <span
+                v-for="tag in o.tags" :key="tag.id"
+                class="tag card-tag"
+                :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                @click.stop="toggleTag(tag.name)"
+              >{{ tag.emoji }} {{ tag.name }}</span>
+            </template>
+            <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
+          </div>
           <div class="card-meta">
             <span class="card-score font-mono">{{ Number(o.priorityScore).toFixed(0) }}</span>
             <span v-if="o.effort" :class="['effort-badge', effortClass(o.effort)]">{{ o.effort }}</span>
@@ -416,6 +427,15 @@ async function onOutcomeSaved(outcome: any) {
                 <span v-if="outcomeMismatchLevel(o) === 'critical'" class="mismatch-dot mismatch-dot-critical" title="Motivation date >90 days before milestone"></span>
                 <span v-else-if="outcomeMismatchLevel(o) === 'warning'" class="mismatch-dot mismatch-dot-warning" title="Motivation date before milestone"></span>
                 <span class="card-title">{{ o.title }}</span>
+                <template v-if="o.tags && o.tags.length">
+                  <span
+                    v-for="tag in o.tags" :key="tag.id"
+                    class="tag card-tag"
+                    :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+                    @click.stop="toggleTag(tag.name)"
+                  >{{ tag.emoji }} {{ tag.name }}</span>
+                </template>
+                <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
               </div>
               <div class="card-meta">
                 <span class="card-score font-mono">{{ Number(o.priorityScore).toFixed(0) }}</span>
@@ -681,14 +701,17 @@ async function onOutcomeSaved(outcome: any) {
   gap: 6px;
   flex: 1;
   min-width: 0;
+  flex-wrap: wrap;
 }
+.card-primary-link { font-size: 11px; color: var(--text-3); text-decoration: none; flex-shrink: 0; margin-left: auto; }
+.card-primary-link:hover { color: var(--accent); }
 .card-title {
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
+  flex-shrink: 1;
   min-width: 0;
 }
 .mismatch-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -702,6 +725,7 @@ async function onOutcomeSaved(outcome: any) {
   margin-left: 12px;
 }
 .card-score { font-size: 12px; font-weight: 600; color: var(--accent); }
+.card-tag { font-size: 10px; padding: 1px 7px; }
 
 .empty {
   font-size: 12px;
