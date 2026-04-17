@@ -1,56 +1,31 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { db } from '../db/index.js';
-import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags } from '../db/schema.js';
+import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
 import { eq, sql, isNull } from 'drizzle-orm';
+import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES } from '../lib/input-validation.js';
 
 const router = Router();
 
-/**
- * Sanitize cell values to prevent Excel formula injection.
- * Cells starting with =, +, -, @, \t, \r are prefixed with a single quote.
- */
+// ─── Sanitization ───
+
 function sanitizeCell(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   if (/^[=+\-@\t\r]/.test(value)) return `'${value}`;
   return value;
 }
 
-/**
- * Escape Markdown metacharacters in user-supplied inline content. Without
- * this, an outcome title like `Build *new* feature [link](http://evil)`
- * renders as italic + a clickable link in the exported document — content
- * the user never wrote.
- *
- * Conservative scope: backslash the chars that break out of a single line
- * of inline text (`*`, `_`, `` ` ``, `[`, `]`, `(`, `)`, `|`, `<`, `>`, `!`)
- * plus the escape char itself. We deliberately do NOT escape `.` or `+`
- * because over-escaping inline punctuation makes the output unreadable.
- */
 function escapeMarkdown(value: string | null | undefined): string {
   if (!value) return '';
   return value.replace(/([\\`*_\[\]()<>|!])/g, '\\$1');
 }
 
-/**
- * Escape multi-line markdown content (descriptions, notes) so a user's
- * description starting with `## Summary` or `- bullet` can't break out of
- * the export's own heading or list hierarchy.
- *
- * Order of operations matters: do inline escape FIRST (which leaves `#`,
- * `-`, `>`, and digits alone — those only matter at line start), then
- * prepend a backslash to leading heading / list / blockquote markers. Doing
- * the block pass first would let the inline pass double-escape the
- * backslash we just added.
- */
 function escapeMarkdownBlock(value: string | null | undefined): string {
   if (!value) return '';
   return value
     .split('\n')
     .map(line => {
       const inlineEscaped = escapeMarkdown(line);
-      // Match leading whitespace + heading (#…), blockquote (>), unordered
-      // list (-, +), or ordered list (digit.). Escape the marker character.
       return inlineEscaped.replace(
         /^(\s*)(#{1,6}\s|>\s|[-+]\s|\d+\.\s)/,
         (_match, ws, marker) => ws + '\\' + marker,
@@ -59,28 +34,54 @@ function escapeMarkdownBlock(value: string | null | undefined): string {
     .join('\n');
 }
 
-// ─── Shared: build the full dataset ───
+// ─── Shared data types ───
 
-interface ExportRow {
-  outcomeId: string;
-  outcomeTitle: string;
-  outcomeDescription: string | null;
-  outcomeEffort: string | null;
-  outcomeStatus: string;
-  outcomePriorityScore: string;
-  milestoneName: string | null;
+interface OutcomeRow {
+  id: string;
+  title: string;
+  description: string | null;
+  effort: string | null;
+  status: string;
+  priorityScore: string;
   milestoneId: string | null;
-  outcomeTags: string;
-  motivationId: string | null;
-  motivationTitle: string | null;
-  motivationType: string | null;
-  motivationScore: string | null;
-  motivationStatus: string | null;
-  motivationAttributes: Record<string, unknown> | null;
+  milestoneName: string | null;
+  milestoneDate: string | null;
+  tags: string;
+  motivationCount: number;
+  topMotivationType: string | null;
+  motivationSummary: string;
+  primaryLinkUrl: string | null;
 }
 
-async function buildExportData(): Promise<{ rows: ExportRow[]; allAttrKeys: string[] }> {
-  // Get all outcomes with their milestones
+interface MotivationRow {
+  id: string;
+  title: string;
+  outcomeId: string;
+  outcomeTitle: string;
+  typeName: string;
+  score: string | null;
+  status: string;
+  attributes: Record<string, unknown>;
+}
+
+interface MilestoneRow {
+  id: string;
+  name: string;
+  targetDate: string;
+  type: string;
+  status: string;
+  outcomeCount: number;
+  avgPriorityScore: number;
+  completedCount: number;
+}
+
+// ─── Build structured export data ───
+
+async function buildStructuredData() {
+  // Fetch all milestones
+  const allMilestones = await db.select().from(milestones).orderBy(sql`${milestones.targetDate} ASC`);
+
+  // Fetch all outcomes with milestone info and primary link URL
   const allOutcomes = await db.select({
     id: outcomes.id,
     title: outcomes.title,
@@ -90,11 +91,14 @@ async function buildExportData(): Promise<{ rows: ExportRow[]; allAttrKeys: stri
     priorityScore: outcomes.priorityScore,
     milestoneId: outcomes.milestoneId,
     milestoneName: milestones.name,
+    milestoneDate: milestones.targetDate,
+    primaryLinkUrl: externalLinks.url,
   }).from(outcomes)
     .leftJoin(milestones, eq(outcomes.milestoneId, milestones.id))
+    .leftJoin(externalLinks, eq(outcomes.primaryLinkId, externalLinks.id))
     .orderBy(sql`${milestones.targetDate} NULLS LAST`, sql`${outcomes.priorityScore} DESC`);
 
-  // Get all outcome-motivation links with motivation details
+  // Fetch all motivation links with details
   const allLinks = await db.select({
     outcomeId: outcomeMotivations.outcomeId,
     motivationId: motivations.id,
@@ -107,7 +111,10 @@ async function buildExportData(): Promise<{ rows: ExportRow[]; allAttrKeys: stri
     .innerJoin(motivations, eq(outcomeMotivations.motivationId, motivations.id))
     .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id));
 
-  // Get tags for outcomes
+  // Fetch motivation type schemas
+  const allTypes = await db.select().from(motivationTypes);
+
+  // Fetch tags
   const allOutcomeTags = await db.select({
     outcomeId: outcomeTags.outcomeId,
     tagName: tags.name,
@@ -120,210 +127,436 @@ async function buildExportData(): Promise<{ rows: ExportRow[]; allAttrKeys: stri
     outcomeTagMap.get(ot.outcomeId)!.push(ot.tagName);
   }
 
-  // Collect all unique attribute keys across all motivations
-  const allAttrKeys = new Set<string>();
-  for (const link of allLinks) {
-    if (link.motivationAttributes) {
-      for (const key of Object.keys(link.motivationAttributes as Record<string, unknown>)) {
-        allAttrKeys.add(key);
-      }
-    }
-  }
-
-  // Build right-joined rows: each motivation gets a row, outcomes span multiple rows
-  const rows: ExportRow[] = [];
+  // Group links by outcome
   const linksByOutcome = new Map<string, typeof allLinks>();
   for (const link of allLinks) {
     if (!linksByOutcome.has(link.outcomeId)) linksByOutcome.set(link.outcomeId, []);
     linksByOutcome.get(link.outcomeId)!.push(link);
   }
 
-  for (const o of allOutcomes) {
+  // Build outcome rows for Timeline sheet
+  const outcomeRows: OutcomeRow[] = allOutcomes.map(o => {
     const oLinks = linksByOutcome.get(o.id) || [];
     const oTags = outcomeTagMap.get(o.id)?.join(', ') || '';
 
-    if (oLinks.length === 0) {
-      // Outcome with no motivations — single row
+    // Find top motivation (highest score)
+    let topType: string | null = null;
+    let topScore = -Infinity;
+    const summaryLines: string[] = [];
+    for (const link of oLinks) {
+      const s = Number(link.motivationScore || 0);
+      summaryLines.push(`${link.motivationType}: "${link.motivationTitle}" (score: ${s.toLocaleString('en', { maximumFractionDigits: 0 })})`);
+      if (s > topScore) { topScore = s; topType = link.motivationType; }
+    }
+
+    return {
+      id: o.id,
+      title: o.title,
+      description: o.description,
+      effort: o.effort,
+      status: o.status,
+      priorityScore: o.priorityScore,
+      milestoneId: o.milestoneId,
+      milestoneName: o.milestoneName,
+      milestoneDate: o.milestoneDate,
+      tags: oTags,
+      motivationCount: oLinks.length,
+      topMotivationType: topType,
+      motivationSummary: summaryLines.join('\n'),
+      primaryLinkUrl: o.primaryLinkUrl || null,
+    };
+  });
+
+  // Build milestone rows with pre-computed summaries
+  const milestoneRows: MilestoneRow[] = allMilestones.map(ms => {
+    const msOutcomes = allOutcomes.filter(o => o.milestoneId === ms.id);
+    const scores = msOutcomes.map(o => Number(o.priorityScore));
+    const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    return {
+      id: ms.id,
+      name: ms.name,
+      targetDate: ms.targetDate,
+      type: ms.type || 'release',
+      status: ms.status || 'upcoming',
+      outcomeCount: msOutcomes.length,
+      avgPriorityScore: Math.round(avg),
+      completedCount: msOutcomes.filter(o => o.status === 'completed').length,
+    };
+  });
+
+  // Build motivation rows grouped by type
+  const motivationsByType = new Map<string, MotivationRow[]>();
+  for (const type of allTypes) {
+    motivationsByType.set(type.name, []);
+  }
+  // We need outcome titles for context
+  const outcomeMap = new Map(allOutcomes.map(o => [o.id, o.title]));
+  for (const link of allLinks) {
+    const rows = motivationsByType.get(link.motivationType);
+    if (rows) {
       rows.push({
-        outcomeId: o.id,
-        outcomeTitle: o.title,
-        outcomeDescription: o.description,
-        outcomeEffort: o.effort,
-        outcomeStatus: o.status,
-        outcomePriorityScore: o.priorityScore,
-        milestoneName: o.milestoneName,
-        milestoneId: o.milestoneId,
-        outcomeTags: oTags,
-        motivationId: null,
-        motivationTitle: null,
-        motivationType: null,
-        motivationScore: null,
-        motivationStatus: null,
-        motivationAttributes: null,
+        id: link.motivationId,
+        title: link.motivationTitle,
+        outcomeId: link.outcomeId,
+        outcomeTitle: outcomeMap.get(link.outcomeId) || '',
+        typeName: link.motivationType,
+        score: link.motivationScore,
+        status: link.motivationStatus,
+        attributes: (link.motivationAttributes as Record<string, unknown>) || {},
       });
-    } else {
-      for (const link of oLinks) {
-        rows.push({
-          outcomeId: o.id,
-          outcomeTitle: o.title,
-          outcomeDescription: o.description,
-          outcomeEffort: o.effort,
-          outcomeStatus: o.status,
-          outcomePriorityScore: o.priorityScore,
-          milestoneName: o.milestoneName,
-          milestoneId: o.milestoneId,
-          outcomeTags: oTags,
-          motivationId: link.motivationId,
-          motivationTitle: link.motivationTitle,
-          motivationType: link.motivationType,
-          motivationScore: link.motivationScore,
-          motivationStatus: link.motivationStatus,
-          motivationAttributes: link.motivationAttributes as Record<string, unknown>,
-        });
-      }
     }
   }
 
-  return { rows, allAttrKeys: [...allAttrKeys].sort() };
+  return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name) };
 }
 
 // ─── Styles ───
 
+const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E7E3' } };
+const HEADER_BORDER: Partial<ExcelJS.Borders> = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } };
+
 function applyHeaderStyle(row: ExcelJS.Row) {
   row.eachCell((cell) => {
     cell.font = { bold: true, size: 10 };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E7E3' } };
-    cell.border = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } };
+    cell.fill = HEADER_FILL;
+    cell.border = HEADER_BORDER;
     cell.alignment = { vertical: 'top', wrapText: true };
   });
+}
+
+function applyReadOnly(cell: ExcelJS.Cell) {
+  cell.protection = { locked: true };
+  cell.font = { ...cell.font, color: { argb: 'FF888888' } };
+}
+
+function applyEditable(cell: ExcelJS.Cell) {
+  cell.protection = { locked: false };
+}
+
+// ─── Validation helpers ───
+
+function listValidation(values: readonly string[], prompt: string): ExcelJS.DataValidation {
+  return {
+    type: 'list',
+    formulae: [`"${values.join(',')}"`],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Invalid value',
+    error: `Must be one of: ${values.join(', ')}`,
+    showInputMessage: true,
+    promptTitle: 'Choose',
+    prompt,
+    errorStyle: 'stop',
+  };
+}
+
+function textLengthValidation(max: number): ExcelJS.DataValidation {
+  return {
+    type: 'textLength',
+    operator: 'lessThanOrEqual',
+    formulae: [max],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Too long',
+    error: `Must be ${max.toLocaleString()} characters or fewer`,
+    errorStyle: 'stop',
+  };
+}
+
+function decimalRangeValidation(min: number, max: number, prompt: string): ExcelJS.DataValidation {
+  return {
+    type: 'decimal',
+    operator: 'between',
+    formulae: [min, max],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Out of range',
+    error: `Must be between ${min} and ${max}`,
+    showInputMessage: true,
+    promptTitle: 'Range',
+    prompt,
+    errorStyle: 'stop',
+  };
+}
+
+function numberMinValidation(min: number, prompt: string): ExcelJS.DataValidation {
+  return {
+    type: 'decimal',
+    operator: 'greaterThanOrEqual',
+    formulae: [min],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Out of range',
+    error: `Must be ${min} or greater`,
+    showInputMessage: true,
+    promptTitle: 'Value',
+    prompt,
+    errorStyle: 'stop',
+  };
+}
+
+function dateValidation(): ExcelJS.DataValidation {
+  return {
+    type: 'date',
+    operator: 'greaterThanOrEqual',
+    formulae: [new Date(2000, 0, 1)],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: 'Invalid date',
+    error: 'Enter a valid date',
+    errorStyle: 'stop',
+  };
+}
+
+/** Translate a single JSON Schema property into an ExcelJS DataValidation, or null for freetext. */
+function jsonSchemaToValidation(propSchema: Record<string, unknown>, propName: string): ExcelJS.DataValidation | null {
+  if (propSchema.enum) {
+    return listValidation(propSchema.enum as string[], `Select ${propName.replace(/_/g, ' ')}`);
+  }
+  if (propSchema.type === 'boolean') {
+    return listValidation(['TRUE', 'FALSE'], `TRUE or FALSE`);
+  }
+  if (propSchema.format === 'date') {
+    return dateValidation();
+  }
+  if (propSchema.type === 'number') {
+    const min = typeof propSchema.minimum === 'number' ? propSchema.minimum : undefined;
+    const max = typeof propSchema.maximum === 'number' ? propSchema.maximum : undefined;
+    if (min !== undefined && max !== undefined) {
+      return decimalRangeValidation(min, max, `${min}–${max}`);
+    }
+    if (min !== undefined) {
+      return numberMinValidation(min, `≥ ${min}`);
+    }
+  }
+  return null; // freetext
 }
 
 // ─── GET /export/timeline ───
 
 router.get('/timeline', async (_req, res) => {
-  const { rows, allAttrKeys } = await buildExportData();
+  const { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames } = await buildStructuredData();
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'moou';
   workbook.created = new Date();
 
-  // Group rows by milestone
-  const groups = new Map<string, ExportRow[]>();
-  groups.set('Backlog', []);
-
-  for (const row of rows) {
-    const key = row.milestoneName || 'Backlog';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(row);
-  }
-
-  // Build columns
-  const baseColumns = [
-    { header: 'Outcome ID', key: 'outcomeId', width: 12 },
-    { header: 'Outcome', key: 'outcomeTitle', width: 35 },
-    { header: 'Description', key: 'outcomeDescription', width: 40 },
-    { header: 'Effort', key: 'outcomeEffort', width: 8 },
-    { header: 'Status', key: 'outcomeStatus', width: 12 },
-    { header: 'Priority Score', key: 'outcomePriorityScore', width: 14 },
-    { header: 'Tags', key: 'outcomeTags', width: 20 },
-    { header: 'Motivation ID', key: 'motivationId', width: 12 },
-    { header: 'Motivation', key: 'motivationTitle', width: 35 },
-    { header: 'Motivation Type', key: 'motivationType', width: 16 },
-    { header: 'Motivation Score', key: 'motivationScore', width: 14 },
-    { header: 'Motivation Status', key: 'motivationStatus', width: 14 },
+  // ════════════════════════════════════════════
+  // Sheet 1: Milestones
+  // ════════════════════════════════════════════
+  const msSheet = workbook.addWorksheet('Milestones');
+  msSheet.columns = [
+    { header: 'Milestone ID', key: 'id', width: 14 },
+    { header: 'Name', key: 'name', width: 30 },
+    { header: 'Target Date', key: 'targetDate', width: 14 },
+    { header: 'Type', key: 'type', width: 12 },
+    { header: 'Status', key: 'status', width: 12 },
+    { header: 'Outcomes', key: 'outcomeCount', width: 10 },
+    { header: 'Avg Score', key: 'avgPriorityScore', width: 10 },
+    { header: 'Completed', key: 'completedCount', width: 10 },
   ];
+  applyHeaderStyle(msSheet.getRow(1));
 
-  const attrColumns = allAttrKeys.map(key => ({
-    header: key.replace(/_/g, ' '),
-    key: `attr_${key}`,
-    width: 16,
-  }));
-
-  const columns = [...baseColumns, ...attrColumns];
-
-  for (const [sheetName, sheetRows] of groups) {
-    if (sheetRows.length === 0 && sheetName === 'Backlog') continue;
-
-    const safeSheetName = sheetName.replace(/[*?:\\/\[\]]/g, '-').substring(0, 31);
-    const sheet = workbook.addWorksheet(safeSheetName); // Excel 31 char limit, no special chars
-    sheet.columns = columns;
-    applyHeaderStyle(sheet.getRow(1));
-
-    // Track which rows belong to same outcome for merging
-    let currentOutcomeId: string | null = null;
-    let mergeStartRow = 2;
-
-    for (let i = 0; i < sheetRows.length; i++) {
-      const row = sheetRows[i]!;
-      const excelRow = i + 2; // 1-indexed, row 1 is header
-
-      const rowData: Record<string, unknown> = {
-        outcomeId: row.outcomeId,
-        outcomeTitle: row.outcomeTitle,
-        outcomeDescription: row.outcomeDescription,
-        outcomeEffort: row.outcomeEffort,
-        outcomeStatus: row.outcomeStatus,
-        outcomePriorityScore: Number(row.outcomePriorityScore),
-        outcomeTags: row.outcomeTags,
-        motivationId: row.motivationId,
-        motivationTitle: row.motivationTitle,
-        motivationType: row.motivationType,
-        motivationScore: row.motivationScore ? Number(row.motivationScore) : null,
-        motivationStatus: row.motivationStatus,
-      };
-
-      // Spread motivation attributes into attr_ columns
-      if (row.motivationAttributes) {
-        for (const key of allAttrKeys) {
-          rowData[`attr_${key}`] = (row.motivationAttributes as Record<string, unknown>)[key] ?? null;
-        }
-      }
-
-      // Sanitize all string values to prevent formula injection
-      const sanitized: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(rowData)) {
-        sanitized[k] = sanitizeCell(v);
-      }
-      sheet.addRow(sanitized);
-
-      // Set alignment
-      sheet.getRow(excelRow).eachCell((cell) => {
-        cell.alignment = { vertical: 'top', wrapText: true };
-      });
-
-      // Merge outcome cells when outcome changes
-      if (row.outcomeId !== currentOutcomeId) {
-        if (currentOutcomeId && excelRow - mergeStartRow > 1) {
-          // Merge outcome columns for the previous outcome group
-          for (let col = 1; col <= 7; col++) { // Columns A-G (outcome fields)
-            if (excelRow - 1 > mergeStartRow) {
-              sheet.mergeCells(mergeStartRow, col, excelRow - 1, col);
-            }
-          }
-        }
-        currentOutcomeId = row.outcomeId;
-        mergeStartRow = excelRow;
-      }
-    }
-
-    // Merge last group
-    if (currentOutcomeId && sheetRows.length > 0) {
-      const lastRow = sheetRows.length + 1;
-      if (lastRow > mergeStartRow) {
-        for (let col = 1; col <= 7; col++) {
-          sheet.mergeCells(mergeStartRow, col, lastRow, col);
-        }
-      }
-    }
-
-    // Freeze header row
-    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  for (const ms of milestoneRows) {
+    const row = msSheet.addRow({
+      id: sanitizeCell(ms.id),
+      name: sanitizeCell(ms.name),
+      targetDate: new Date(ms.targetDate),
+      type: ms.type,
+      status: ms.status,
+      outcomeCount: ms.outcomeCount,
+      avgPriorityScore: ms.avgPriorityScore,
+      completedCount: ms.completedCount,
+    });
+    row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
+    // Read-only: ID, summary columns
+    applyReadOnly(row.getCell('id'));
+    applyReadOnly(row.getCell('outcomeCount'));
+    applyReadOnly(row.getCell('avgPriorityScore'));
+    applyReadOnly(row.getCell('completedCount'));
+    // Editable cells
+    for (const key of ['name', 'targetDate', 'type', 'status'] as const) applyEditable(row.getCell(key));
+    // Validation
+    row.getCell('type').dataValidation = listValidation(VALID_MILESTONE_TYPES, 'Milestone type');
+    row.getCell('status').dataValidation = listValidation(VALID_MILESTONE_STATUSES, 'Milestone status');
+    row.getCell('targetDate').dataValidation = dateValidation();
+    row.getCell('name').dataValidation = textLengthValidation(200);
   }
 
-  // Generate and send
+  msSheet.views = [{ state: 'frozen', ySplit: 1 }];
+  msSheet.autoFilter = { from: 'A1', to: `H${milestoneRows.length + 1}` };
+  // Protect sheet — only editable cells are unlocked
+  await msSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
+
+  // ════════════════════════════════════════════
+  // Sheet 2: Timeline
+  // ════════════════════════════════════════════
+  const tlSheet = workbook.addWorksheet('Timeline');
+  tlSheet.columns = [
+    { header: 'Outcome ID', key: 'id', width: 14 },
+    { header: 'Outcome', key: 'title', width: 35 },
+    { header: 'Description', key: 'description', width: 40 },
+    { header: 'Milestone', key: 'milestone', width: 22 },
+    { header: 'Effort', key: 'effort', width: 8 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Priority Score', key: 'priorityScore', width: 14 },
+    { header: 'Tags', key: 'tags', width: 20 },
+    { header: 'Primary Issue', key: 'primaryLinkUrl', width: 30 },
+    { header: 'Motivations', key: 'motivationCount', width: 12 },
+    { header: 'Top Type', key: 'topMotivationType', width: 18 },
+  ];
+  applyHeaderStyle(tlSheet.getRow(1));
+
+  // Milestone dropdown references the Milestones sheet Name column
+  const milestoneListValidation: ExcelJS.DataValidation = milestoneNames.length > 0
+    ? { type: 'list', formulae: [`"${milestoneNames.join(',')}"`], allowBlank: true, showErrorMessage: true, errorTitle: 'Unknown milestone', error: 'Select a milestone from the Milestones sheet, or leave blank for backlog.', showInputMessage: true, promptTitle: 'Milestone', prompt: 'Select milestone or leave blank', errorStyle: 'warning' }
+    : { type: 'list', formulae: ['""'], allowBlank: true } as any;
+
+  for (const o of outcomeRows) {
+    const row = tlSheet.addRow({
+      id: sanitizeCell(o.id),
+      title: sanitizeCell(o.title),
+      description: sanitizeCell(o.description),
+      milestone: o.milestoneName || '',
+      effort: o.effort || '',
+      status: o.status,
+      priorityScore: Number(o.priorityScore),
+      tags: sanitizeCell(o.tags),
+      primaryLinkUrl: o.primaryLinkUrl || '',
+      motivationCount: o.motivationCount,
+      topMotivationType: o.topMotivationType || '',
+    });
+    row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
+
+    // Make primary link a clickable hyperlink
+    if (o.primaryLinkUrl) {
+      const linkCell = row.getCell('primaryLinkUrl');
+      linkCell.value = { text: o.primaryLinkUrl, hyperlink: o.primaryLinkUrl } as any;
+      linkCell.font = { ...linkCell.font, color: { argb: 'FF2A7AC8' }, underline: true };
+    }
+
+    // Read-only cells
+    applyReadOnly(row.getCell('id'));
+    applyReadOnly(row.getCell('priorityScore'));
+    applyReadOnly(row.getCell('primaryLinkUrl'));
+    applyReadOnly(row.getCell('motivationCount'));
+    applyReadOnly(row.getCell('topMotivationType'));
+
+    // Editable cells
+    for (const key of ['title', 'description', 'milestone', 'effort', 'status', 'tags'] as const) applyEditable(row.getCell(key));
+    // Validation
+    row.getCell('milestone').dataValidation = milestoneListValidation;
+    row.getCell('effort').dataValidation = listValidation(VALID_EFFORT_SIZES, 'Effort size');
+    row.getCell('status').dataValidation = listValidation(VALID_OUTCOME_STATUSES, 'Outcome status');
+    row.getCell('title').dataValidation = textLengthValidation(500);
+    row.getCell('description').dataValidation = textLengthValidation(50000);
+
+    // Cell comment with motivation summary
+    if (o.motivationSummary) {
+      row.getCell('motivationCount').note = {
+        texts: [{ text: o.motivationSummary, font: { size: 9, name: 'Calibri' } }],
+      };
+    }
+  }
+
+  tlSheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const tlLastCol = String.fromCharCode(64 + tlSheet.columns.length); // J
+  tlSheet.autoFilter = { from: 'A1', to: `${tlLastCol}${outcomeRows.length + 1}` };
+  await tlSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
+
+  // ════════════════════════════════════════════
+  // Sheets 3–N: One per motivation type
+  // ════════════════════════════════════════════
+  for (const type of allTypes) {
+    const typeRows = motivationsByType.get(type.name) || [];
+    if (typeRows.length === 0) continue; // skip empty types
+
+    const schema = type.attributeSchema as { properties?: Record<string, Record<string, unknown>> };
+    const attrProps = schema.properties || {};
+    const attrKeys = Object.keys(attrProps);
+
+    const safeSheetName = type.name.replace(/[*?:\\/\[\]]/g, '-').substring(0, 31);
+    const typeSheet = workbook.addWorksheet(safeSheetName);
+
+    // Build columns: fixed + type-specific attributes
+    const typeCols: Partial<ExcelJS.Column>[] = [
+      { header: 'Motivation ID', key: 'id', width: 14 },
+      { header: 'Motivation', key: 'title', width: 35 },
+      { header: 'Outcome', key: 'outcomeTitle', width: 30 },
+      { header: 'Outcome ID', key: 'outcomeId', width: 14 },
+      { header: 'Score', key: 'score', width: 10 },
+      { header: 'Status', key: 'status', width: 12 },
+    ];
+    for (const key of attrKeys) {
+      typeCols.push({ header: key.replace(/_/g, ' '), key: `attr_${key}`, width: 16 });
+    }
+    typeSheet.columns = typeCols;
+    applyHeaderStyle(typeSheet.getRow(1));
+
+    // Build validation map from schema
+    const attrValidations = new Map<string, ExcelJS.DataValidation | null>();
+    for (const [key, propSchema] of Object.entries(attrProps)) {
+      attrValidations.set(key, jsonSchemaToValidation(propSchema, key));
+    }
+
+    for (const m of typeRows) {
+      const rowData: Record<string, unknown> = {
+        id: sanitizeCell(m.id),
+        title: sanitizeCell(m.title),
+        outcomeTitle: sanitizeCell(m.outcomeTitle),
+        outcomeId: sanitizeCell(m.outcomeId),
+        score: m.score ? Number(m.score) : null,
+        status: m.status,
+      };
+      for (const key of attrKeys) {
+        let val = m.attributes[key] ?? null;
+        // Convert date strings to Date objects for Excel
+        if (attrProps[key]?.format === 'date' && typeof val === 'string') {
+          val = new Date(val);
+        }
+        // Convert booleans to Excel-friendly strings
+        if (attrProps[key]?.type === 'boolean' && typeof val === 'boolean') {
+          val = val ? 'TRUE' : 'FALSE';
+        }
+        rowData[`attr_${key}`] = sanitizeCell(val);
+      }
+
+      const row = typeSheet.addRow(rowData);
+      row.eachCell(cell => { cell.alignment = { vertical: 'top', wrapText: true }; });
+
+      // Read-only cells
+      applyReadOnly(row.getCell('id'));
+      applyReadOnly(row.getCell('outcomeTitle'));
+      applyReadOnly(row.getCell('outcomeId'));
+      applyReadOnly(row.getCell('score'));
+
+      // Editable cells
+      applyEditable(row.getCell('title'));
+      applyEditable(row.getCell('status'));
+      for (const key of attrKeys) applyEditable(row.getCell(`attr_${key}`));
+
+      // Fixed-column validation
+      row.getCell('status').dataValidation = listValidation(['active', 'resolved'], 'Motivation status');
+      row.getCell('title').dataValidation = textLengthValidation(500);
+
+      // Attribute validation from schema
+      for (const key of attrKeys) {
+        const validation = attrValidations.get(key);
+        if (validation) {
+          row.getCell(`attr_${key}`).dataValidation = validation;
+        }
+      }
+    }
+
+    const typeLastCol = String.fromCharCode(64 + typeSheet.columns.length);
+    typeSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    typeSheet.autoFilter = { from: 'A1', to: `${typeLastCol}${typeRows.length + 1}` };
+    await typeSheet.protect('', { selectLockedCells: true, selectUnlockedCells: true, formatCells: true, sort: true, autoFilter: true });
+  }
+
+  // ─── Send response ───
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="moou-timeline-${new Date().toISOString().split('T')[0]}.xlsx"`);
-
   await workbook.xlsx.write(res);
   res.end();
 });
@@ -331,45 +564,33 @@ router.get('/timeline', async (_req, res) => {
 // ─── GET /export/timeline/markdown ───
 
 router.get('/timeline/markdown', async (_req, res) => {
-  const { rows } = await buildExportData();
+  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData();
 
-  // Group by milestone
-  const groups = new Map<string, ExportRow[]>();
-  for (const row of rows) {
-    const key = row.milestoneName || 'Backlog';
+  // Group outcomes by milestone for markdown
+  const groups = new Map<string, OutcomeRow[]>();
+  for (const o of outcomeRows) {
+    const key = o.milestoneName || 'Backlog';
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(row);
+    groups.get(key)!.push(o);
   }
 
   let md = `# moou Timeline Export\n\n*Exported ${new Date().toISOString().split('T')[0]}*\n\n`;
 
-  for (const [milestone, milestoneRows] of groups) {
+  for (const [milestone, milestoneOutcomes] of groups) {
     md += `## ${escapeMarkdown(milestone)}\n\n`;
 
-    // Group by outcome within milestone
-    const outcomeGroups = new Map<string, ExportRow[]>();
-    for (const row of milestoneRows) {
-      if (!outcomeGroups.has(row.outcomeId)) outcomeGroups.set(row.outcomeId, []);
-      outcomeGroups.get(row.outcomeId)!.push(row);
-    }
-
-    for (const [, outcomeRows] of outcomeGroups) {
-      const o = outcomeRows[0]!;
-      const score = Number(o.outcomePriorityScore).toLocaleString('en', { maximumFractionDigits: 0 });
-      md += `### ${escapeMarkdown(o.outcomeTitle)}\n`;
-      md += `**Score:** ${score} | **Effort:** ${escapeMarkdown(o.outcomeEffort) || '—'} | **Status:** ${escapeMarkdown(o.outcomeStatus)}`;
-      if (o.outcomeTags) md += ` | **Tags:** ${escapeMarkdown(o.outcomeTags)}`;
+    for (const o of milestoneOutcomes) {
+      const score = Number(o.priorityScore).toLocaleString('en', { maximumFractionDigits: 0 });
+      md += `### ${escapeMarkdown(o.title)}\n`;
+      md += `**Score:** ${score} | **Effort:** ${escapeMarkdown(o.effort) || '—'} | **Status:** ${escapeMarkdown(o.status)}`;
+      if (o.tags) md += ` | **Tags:** ${escapeMarkdown(o.tags)}`;
       md += `\n\n`;
-      if (o.outcomeDescription) md += `${escapeMarkdownBlock(o.outcomeDescription)}\n\n`;
+      if (o.description) md += `${escapeMarkdownBlock(o.description)}\n\n`;
 
-      const motivationRows = outcomeRows.filter(r => r.motivationId);
-      if (motivationRows.length > 0) {
+      if (o.motivationSummary) {
         md += `**Motivations:**\n`;
-        for (const m of motivationRows) {
-          const mScore = Number(m.motivationScore || 0).toLocaleString('en', { maximumFractionDigits: 0 });
-          md += `- **${escapeMarkdown(m.motivationTitle)}** (${escapeMarkdown(m.motivationType)}, score: ${mScore})`;
-          if (m.motivationStatus === 'resolved') md += ` ~~resolved~~`;
-          md += `\n`;
+        for (const line of o.motivationSummary.split('\n')) {
+          md += `- ${escapeMarkdown(line)}\n`;
         }
         md += `\n`;
       }
@@ -381,5 +602,5 @@ router.get('/timeline/markdown', async (_req, res) => {
   res.send(md);
 });
 
-export { buildExportData };
+export { buildStructuredData };
 export default router;

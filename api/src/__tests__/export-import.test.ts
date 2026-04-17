@@ -15,7 +15,35 @@ function api() {
   };
 }
 
-// Helper: create test data
+function parseExcel(res: any): Promise<ExcelJS.Workbook> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (d: Buffer) => chunks.push(d));
+    res.on('end', async () => {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(Buffer.concat(chunks));
+      resolve(wb);
+    });
+    res.on('error', reject);
+  });
+}
+
+async function exportWorkbook(): Promise<ExcelJS.Workbook> {
+  const res = await api().get('/export/timeline')
+    .buffer(true)
+    .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(res.body);
+  return wb;
+}
+
+async function exportBuffer(): Promise<Buffer> {
+  const res = await api().get('/export/timeline')
+    .buffer(true)
+    .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+  return res.body;
+}
+
 async function seedTestData() {
   const ms = await api().post('/milestones').set('X-User-Id', USER)
     .send({ name: 'Q2 Export Test', targetDate: '2026-06-30', type: 'release' });
@@ -34,36 +62,168 @@ async function seedTestData() {
 
   await api().post(`/motivations/${m1.body.id}/link/${o1.body.id}`).set('X-User-Id', USER);
 
-  return { ms: ms.body, o1: o1.body, o2: o2.body, m1: m1.body };
+  return { ms: ms.body, o1: o1.body, o2: o2.body, m1: m1.body, cdType };
 }
 
 describe('Export', () => {
-  it('GET /export/timeline returns valid Excel file', async () => {
+  it('returns a valid Excel file with Milestones, Timeline, and type sheets', async () => {
     await seedTestData();
+    const wb = await exportWorkbook();
+    const sheetNames = wb.worksheets.map(s => s.name);
 
-    const res = await api().get('/export/timeline')
-      .expect(200)
-      .expect('Content-Type', /spreadsheetml/)
-      .buffer(true)
-      .parse((res, cb) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => cb(null, Buffer.concat(chunks)));
-      });
-
-    expect(Buffer.isBuffer(res.body)).toBe(true);
-
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(res.body);
-
-    expect(workbook.worksheets.length).toBeGreaterThanOrEqual(1);
-
-    // Should have a sheet for the milestone
-    const sheetNames = workbook.worksheets.map(s => s.name);
-    expect(sheetNames).toContain('Q2 Export Test');
+    expect(sheetNames).toContain('Milestones');
+    expect(sheetNames).toContain('Timeline');
+    expect(sheetNames).toContain('Customer Demand');
+    // No per-milestone sheets
+    expect(sheetNames).not.toContain('Q2 Export Test');
+    expect(sheetNames).not.toContain('Backlog');
   });
 
-  it('GET /export/timeline/markdown returns markdown', async () => {
+  it('Milestones sheet has milestone data with summary columns', async () => {
+    await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Milestones')!;
+
+    // Check headers
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell) => headers.push(String(cell.value)));
+    expect(headers).toContain('Name');
+    expect(headers).toContain('Target Date');
+    expect(headers).toContain('Outcomes');
+    expect(headers).toContain('Avg Score');
+
+    // Check milestone row exists
+    let foundMs = false;
+    sheet.eachRow((row, rowNum) => {
+      if (rowNum === 1) return;
+      const vals = row.values as any[];
+      if (vals.some(v => String(v).includes('Q2 Export Test'))) foundMs = true;
+    });
+    expect(foundMs).toBe(true);
+  });
+
+  it('Timeline sheet has all outcomes with milestone column and AutoFilter', async () => {
+    const { o1, o2 } = await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Timeline')!;
+
+    // Check headers include Milestone column
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell) => headers.push(String(cell.value)));
+    expect(headers).toContain('Milestone');
+    expect(headers).toContain('Outcome');
+    expect(headers).toContain('Effort');
+    expect(headers).toContain('Motivations');
+
+    // Both outcomes should be present
+    let foundO1 = false;
+    let foundO2 = false;
+    sheet.eachRow((row, rowNum) => {
+      if (rowNum === 1) return;
+      const vals = row.values as any[];
+      if (vals.some(v => String(v).includes('Export Outcome 1'))) foundO1 = true;
+      if (vals.some(v => String(v).includes('Backlog Outcome'))) foundO2 = true;
+    });
+    expect(foundO1).toBe(true);
+    expect(foundO2).toBe(true);
+
+    // AutoFilter should be set
+    expect(sheet.autoFilter).toBeDefined();
+  });
+
+  it('Timeline sheet has data validation on editable cells', async () => {
+    await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Timeline')!;
+
+    // Find column indices
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell, col) => { headers[col] = String(cell.value); });
+    const effortCol = headers.indexOf('Effort');
+    const statusCol = headers.indexOf('Status');
+    const milestoneCol = headers.indexOf('Milestone');
+
+    // Check row 2 validation
+    const row2 = sheet.getRow(2);
+    expect(row2.getCell(effortCol).dataValidation).toBeDefined();
+    expect(row2.getCell(effortCol).dataValidation?.type).toBe('list');
+    expect(row2.getCell(statusCol).dataValidation).toBeDefined();
+    expect(row2.getCell(statusCol).dataValidation?.type).toBe('list');
+    expect(row2.getCell(milestoneCol).dataValidation).toBeDefined();
+  });
+
+  it('Timeline sheet has cell comment on Motivations column for outcomes with motivations', async () => {
+    await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Timeline')!;
+
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell, col) => { headers[col] = String(cell.value); });
+    const motivationsCol = headers.indexOf('Motivations');
+
+    // Find the row for Export Outcome 1 (has a motivation)
+    let commentFound = false;
+    sheet.eachRow((row, rowNum) => {
+      if (rowNum === 1) return;
+      const vals = row.values as any[];
+      if (vals.some(v => String(v).includes('Export Outcome 1'))) {
+        const cell = row.getCell(motivationsCol);
+        if (cell.note) commentFound = true;
+      }
+    });
+    expect(commentFound).toBe(true);
+  });
+
+  it('Motivation type sheet has type-specific attribute columns with validation', async () => {
+    await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Customer Demand')!;
+    expect(sheet).toBeDefined();
+
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell) => headers.push(String(cell.value)));
+
+    // Should have Customer Demand-specific columns
+    expect(headers).toContain('customer name');
+    expect(headers).toContain('revenue at risk');
+    expect(headers).toContain('confidence');
+    expect(headers).toContain('segment');
+
+    // Should NOT have columns from other types
+    expect(headers).not.toContain('regulation');
+    expect(headers).not.toContain('blast radius');
+
+    // Check validation on enum column (segment)
+    const segmentCol = headers.indexOf('segment') + 1;
+    const row2 = sheet.getRow(2);
+    if (row2.hasValues) {
+      expect(row2.getCell(segmentCol).dataValidation?.type).toBe('list');
+    }
+  });
+
+  it('read-only cells are locked while editable cells are unlocked', async () => {
+    await seedTestData();
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Timeline')!;
+
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell, col) => { headers[col] = String(cell.value); });
+    const effortCol = headers.indexOf('Effort');
+    const scoreCol = headers.indexOf('Priority Score');
+
+    // Sheet protection should be enabled
+    expect(sheet.sheetProtection).toBeDefined();
+
+    // Editable cell (Effort) should be explicitly unlocked
+    const row2 = sheet.getRow(2);
+    expect(row2.getCell(effortCol).protection?.locked).toBe(false);
+
+    // Read-only cell (Priority Score) should NOT be unlocked
+    const scoreLocked = row2.getCell(scoreCol).protection?.locked;
+    expect(scoreLocked === undefined || scoreLocked === true).toBe(true);
+  });
+
+  it('markdown export still works', async () => {
     await seedTestData();
 
     const res = await api().get('/export/timeline/markdown')
@@ -78,7 +238,6 @@ describe('Export', () => {
   });
 
   it('escapes markdown metacharacters in user-supplied content', async () => {
-    // Create an outcome whose title and description try to inject markdown.
     const milestone = await api().post('/milestones').set('X-User-Id', USER)
       .send({ name: 'Injection test', targetDate: '2026-12-31' });
 
@@ -92,69 +251,56 @@ describe('Export', () => {
     const res = await api().get('/export/timeline/markdown').expect(200);
     const md = res.text;
 
-    // The injected link, heading, and emphasis must NOT appear unescaped.
-    // (`[click]` would render as a clickable link without escaping; with
-    // escaping, the literal `[click\]` text appears in the output.)
     expect(md).not.toContain('[click](http://evil.com)');
     expect(md).not.toContain('\n## Pwned heading');
     expect(md).not.toContain('\n- pwned bullet');
-
-    // The escaped versions DO appear (proving the content is preserved,
-    // just rendered as literal text).
     expect(md).toContain('Build \\*new\\*');
     expect(md).toContain('\\[click\\]');
     expect(md).toContain('\\## Pwned heading');
   });
-
-  it('Excel contains outcome and motivation data', async () => {
-    const { o1, m1 } = await seedTestData();
-
-    const res = await api().get('/export/timeline')
-      .buffer(true)
-      .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(res.body);
-
-    const sheet = workbook.getWorksheet('Q2 Export Test')!;
-    expect(sheet).toBeDefined();
-
-    // Find the outcome row
-    let foundOutcome = false;
-    let foundMotivation = false;
-    sheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // skip header
-      const values = row.values as any[];
-      // Check for outcome title (column 2)
-      if (values.some(v => String(v).includes('Export Outcome 1'))) foundOutcome = true;
-      if (values.some(v => String(v).includes('Test Customer'))) foundMotivation = true;
-    });
-
-    expect(foundOutcome).toBe(true);
-    expect(foundMotivation).toBe(true);
-  });
 });
 
 describe('Import', () => {
-  it('POST /import/timeline/diff accepts an uploaded spreadsheet and returns diffs', async () => {
+  it('rejects old-format exports without Milestones sheet', async () => {
     await seedTestData();
 
-    // Export, then re-import unchanged — should detect no modifications
-    const exportRes = await api().get('/export/timeline')
-      .buffer(true)
-      .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+    // Create a workbook in the old format (per-milestone sheets, no Milestones sheet)
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet('Q2 Export Test');
+    sheet.addRow(['Outcome ID', 'Outcome']);
+    sheet.addRow(['some-id', 'Some outcome']);
+
+    const buf = await wb.xlsx.writeBuffer();
 
     const res = await api().post('/import/timeline/diff')
       .set('X-User-Id', USER)
       .set('Content-Type', 'application/octet-stream')
-      .send(exportRes.body);
+      .send(Buffer.from(buf));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('FORMAT_ERROR');
+    expect(res.body.error.message).toContain('older export format');
+  });
+
+  it('round-trips unchanged export with no diffs', async () => {
+    await seedTestData();
+    const buf = await exportBuffer();
+
+    const res = await api().post('/import/timeline/diff')
+      .set('X-User-Id', USER)
+      .set('Content-Type', 'application/octet-stream')
+      .send(buf);
 
     expect(res.status).toBe(200);
     expect(res.body.diffs).toBeDefined();
     expect(res.body.summary).toBeDefined();
-    expect(res.body.summary.total).toBeTypeOf('number');
+    // Unchanged export should have 0 modifications (may have 0 or some due to rounding)
+    expect(res.body.summary.modified).toBe(0);
+    expect(res.body.summary.created).toBe(0);
+    expect(res.body.summary.moved).toBe(0);
   });
 
-  it('POST /import/timeline/apply applies selected changes', async () => {
+  it('applies outcome changes from Timeline sheet', async () => {
     const { o1 } = await seedTestData();
 
     const diffs = [{
@@ -163,7 +309,7 @@ describe('Import', () => {
       entityId: o1.id,
       title: 'Export Outcome 1',
       changes: { effort: { old: 'M', new: 'L' } },
-      sheetName: 'Q2 Export Test',
+      sheetName: 'Timeline',
     }];
 
     const res = await api().post('/import/timeline/apply')
@@ -174,12 +320,31 @@ describe('Import', () => {
     expect(res.body.applied).toHaveLength(1);
     expect(res.body.applied[0]).toContain('Updated outcome');
 
-    // Verify the change was applied
     const outcome = await api().get(`/outcomes/${o1.id}`);
     expect(outcome.body.effort).toBe('L');
   });
 
-  it('POST /import/timeline/apply archives deleted outcomes', async () => {
+  it('applies milestone changes from Milestones sheet', async () => {
+    const { ms } = await seedTestData();
+
+    const diffs = [{
+      type: 'milestone_modified',
+      entityType: 'milestone',
+      entityId: ms.id,
+      title: 'Q2 Export Test',
+      changes: { name: { old: 'Q2 Export Test', new: 'Q2 Renamed' } },
+      sheetName: 'Milestones',
+    }];
+
+    const res = await api().post('/import/timeline/apply')
+      .set('X-User-Id', USER)
+      .send({ diffs });
+
+    expect(res.status).toBe(200);
+    expect(res.body.applied[0]).toContain('Updated milestone');
+  });
+
+  it('archives deleted outcomes', async () => {
     const { o2 } = await seedTestData();
 
     const diffs = [{
@@ -198,7 +363,6 @@ describe('Import', () => {
     expect(res.status).toBe(200);
     expect(res.body.applied[0]).toContain('Archived');
 
-    // Should still exist but be archived
     const outcome = await api().get(`/outcomes/${o2.id}`);
     expect(outcome.body.status).toBe('archived');
   });
