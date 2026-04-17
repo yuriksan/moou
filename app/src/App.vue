@@ -63,10 +63,14 @@ async function logout() {
   router.push('/login');
 }
 
+// `routeName` matches the named route in router.ts and stays stable when a
+// `:slugId?` segment is appended (e.g. /outcomes/upgrade-postgres-{uuid}).
+// We used to compare against the full path, but that broke the active-tab
+// underline as soon as the user selected an item in any list view.
 const navItems = [
-  { name: 'Timeline', route: '/timeline' },
-  { name: 'Outcomes', route: '/outcomes' },
-  { name: 'Motivations', route: '/motivations' },
+  { name: 'Timeline', route: '/timeline', routeName: 'timeline' },
+  { name: 'Outcomes', route: '/outcomes', routeName: 'outcomes' },
+  { name: 'Motivations', route: '/motivations', routeName: 'motivations' },
 ];
 </script>
 
@@ -97,7 +101,7 @@ const navItems = [
         :key="item.route"
         :to="item.route"
         class="nav-tab"
-        :class="{ active: route.path === item.route }"
+        :class="{ active: route.name === item.routeName }"
       >
         {{ item.name }}
       </router-link>
