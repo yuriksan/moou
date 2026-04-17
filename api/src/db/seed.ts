@@ -118,7 +118,7 @@ export async function seed() {
         .set({ scoringDescription: mt.scoringDescription })
         .where(and(eq(motivationTypes.name, mt.name), isNull(motivationTypes.scoringDescription)));
     }
-    console.log('Database already seeded, skipping.');
+    console.log('Database already seeded, backfill checked.');
     return;
   }
 

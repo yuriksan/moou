@@ -23,7 +23,7 @@ onMounted(async () => {
       const me = await api.getMe();
       authenticatedUser.value = me;
       authChecked.value = true;
-      router.push('/timeline');
+      router.replace('/timeline');
       return;
     } catch {
       // Not authenticated — stay on login

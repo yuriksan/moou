@@ -13,17 +13,16 @@ const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost
 
 /**
  * Sanitise a returnTo redirect value to prevent open-redirect attacks.
- * Only absolute URLs whose origin is listed in CORS_ORIGINS are allowed.
- * Relative paths starting with a single `/` are allowed.
- * If CORS_ORIGINS is empty/unset, the origin check is skipped (no
- * restrictions configured).
+ * Absolute URLs are only allowed if their origin is in CORS_ORIGINS.
+ * If CORS_ORIGINS is empty/unset, absolute URLs are rejected (safe by default).
+ * Relative paths starting with a single `/` are always allowed.
  */
 export function sanitizeRedirect(redirectTo: string): string {
   if (redirectTo === '/') return redirectTo;
   try {
     const url = new URL(redirectTo);
     const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (allowed.length > 0 && !allowed.includes(url.origin)) return '/';
+    if (allowed.length === 0 || !allowed.includes(url.origin)) return '/';
     return redirectTo;
   } catch {
     // Not a valid absolute URL — only allow paths starting with a single slash

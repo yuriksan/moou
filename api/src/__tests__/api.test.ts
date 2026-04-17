@@ -662,13 +662,13 @@ describe('GitHub auth redirect validation (sanitizeRedirect)', () => {
     expect(sanitizeRedirect('//evil.com')).toBe('/');
   });
 
-  it('allows legitimate origins when CORS_ORIGINS is empty (no restrictions)', () => {
+  it('rejects absolute URLs when CORS_ORIGINS is empty (safe by default)', () => {
     process.env.CORS_ORIGINS = '';
-    expect(sanitizeRedirect('http://localhost:5173/dashboard')).toBe('http://localhost:5173/dashboard');
+    expect(sanitizeRedirect('http://localhost:5173/dashboard')).toBe('/');
   });
 
-  it('allows legitimate origins when CORS_ORIGINS is unset (no restrictions)', () => {
+  it('rejects absolute URLs when CORS_ORIGINS is unset (safe by default)', () => {
     delete process.env.CORS_ORIGINS;
-    expect(sanitizeRedirect('http://localhost:5173/motivations')).toBe('http://localhost:5173/motivations');
+    expect(sanitizeRedirect('http://localhost:5173/motivations')).toBe('/');
   });
 });
