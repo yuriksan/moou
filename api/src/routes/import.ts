@@ -6,7 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import { recordUpdate, recordHistory, recordCreate } from '../lib/history.js';
 import { recalculateMotivation, recalculateOutcome } from '../scoring/recalculate.js';
 import { broadcast } from '../sse/emitter.js';
-import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES } from '../lib/input-validation.js';
+import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES, safeSheetName } from '../lib/input-validation.js';
 
 function validateField(field: string, value: unknown): boolean {
   if (field === 'status' && typeof value === 'string') return (VALID_OUTCOME_STATUSES as readonly string[]).includes(value);
@@ -88,6 +88,18 @@ router.post('/timeline/diff', async (req, res) => {
       error: {
         code: 'FORMAT_ERROR',
         message: 'This spreadsheet uses an older export format. Please re-export from moou.',
+      },
+    });
+    return;
+  }
+
+  // Limit sheet count to prevent abuse on upload
+  const MAX_SHEETS = 50;
+  if (workbook.worksheets.length > MAX_SHEETS) {
+    res.status(400).json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: `Spreadsheet has ${workbook.worksheets.length} sheets — maximum allowed is ${MAX_SHEETS}.`,
       },
     });
     return;
@@ -216,7 +228,8 @@ router.post('/timeline/diff', async (req, res) => {
   // ─── 3. Parse motivation type sheets ───
   const seenMotivationIds = new Set<string>();
   for (const type of currentTypes) {
-    const typeSheet = workbook.getWorksheet(type.name);
+    // Export creates sheets with safeSheetName(type.name), so look up using the same sanitisation.
+    const typeSheet = workbook.getWorksheet(safeSheetName(type.name));
     if (!typeSheet) continue;
 
     const typeHeaders = parseHeaders(typeSheet);
@@ -285,16 +298,20 @@ router.post('/timeline/diff', async (req, res) => {
   }
 
   // ─── 4. Detect deleted outcomes ───
-  for (const [id, o] of outcomeMap) {
-    if (!seenOutcomeIds.has(id)) {
-      diffs.push({
-        type: 'outcome_deleted',
-        entityType: 'outcome',
-        entityId: id,
-        title: o.title,
-        changes: { title: { old: o.title, new: null } },
-        sheetName: 'Deleted',
-      });
+  // Only detect deletions when the Timeline sheet is present; if it's missing
+  // seenOutcomeIds will be empty and every existing outcome would be flagged.
+  if (tlSheet) {
+    for (const [id, o] of outcomeMap) {
+      if (!seenOutcomeIds.has(id)) {
+        diffs.push({
+          type: 'outcome_deleted',
+          entityType: 'outcome',
+          entityId: id,
+          title: o.title,
+          changes: { title: { old: o.title, new: null } },
+          sheetName: 'Deleted',
+        });
+      }
     }
   }
 

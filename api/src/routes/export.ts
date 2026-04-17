@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES } from '../lib/input-validation.js';
+import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES, safeSheetName } from '../lib/input-validation.js';
 
 const router = Router();
 
@@ -167,9 +167,18 @@ async function buildStructuredData() {
     };
   });
 
+  // Pre-index outcomes by milestoneId for O(1) lookups in milestone aggregation
+  const outcomesByMilestone = new Map<string, typeof allOutcomes>();
+  for (const o of allOutcomes) {
+    if (o.milestoneId) {
+      if (!outcomesByMilestone.has(o.milestoneId)) outcomesByMilestone.set(o.milestoneId, []);
+      outcomesByMilestone.get(o.milestoneId)!.push(o);
+    }
+  }
+
   // Build milestone rows with pre-computed summaries
   const milestoneRows: MilestoneRow[] = allMilestones.map(ms => {
-    const msOutcomes = allOutcomes.filter(o => o.milestoneId === ms.id);
+    const msOutcomes = outcomesByMilestone.get(ms.id) || [];
     const scores = msOutcomes.map(o => Number(o.priorityScore));
     const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     return {
@@ -501,8 +510,10 @@ router.get('/timeline', async (_req, res) => {
     const attrProps = schema.properties || {};
     const attrKeys = Object.keys(attrProps);
 
-    const safeSheetName = type.name.replace(/[*?:\\/\[\]]/g, '-').substring(0, 31);
-    const typeSheet = workbook.addWorksheet(safeSheetName);
+    // Sheet name sanitisation — shared with import.ts (via safeSheetName from input-validation)
+    // so import can find these sheets by applying the same transform to motivation_types.name.
+    const sheetName = safeSheetName(type.name);
+    const typeSheet = workbook.addWorksheet(sheetName);
 
     // Build columns: fixed + type-specific attributes
     const typeCols: Partial<ExcelJS.Column>[] = [

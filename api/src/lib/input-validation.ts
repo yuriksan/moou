@@ -59,3 +59,14 @@ export function validateUUIDParam(id: string): string | null {
   if (!isValidUUID(id)) return 'Invalid ID format';
   return null;
 }
+
+/**
+ * Sanitize a string for use as an Excel sheet name.
+ * Replaces characters invalid in sheet names (*?:\\/[]) with '-' and
+ * truncates to Excel's 31-character limit.
+ *
+ * Used by both export (to create sheets) and import (to look them up).
+ */
+export function safeSheetName(name: string): string {
+  return name.replace(/[*?:\\/\[\]]/g, '-').substring(0, 31);
+}
