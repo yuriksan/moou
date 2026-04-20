@@ -12,17 +12,27 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
 const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3000/auth/callback';
 
 /**
+ * Parse configured CORS origins with the same logic used by the CORS middleware.
+ * When CORS_ORIGINS is unset or empty, falls back to the dev default so redirect
+ * validation stays in sync with what CORS actually allows.
+ */
+export function getAllowedOrigins(): string[] {
+  const raw = process.env.CORS_ORIGINS;
+  if (!raw || raw.trim() === '') return ['http://localhost:5173'];
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
  * Sanitise a returnTo redirect value to prevent open-redirect attacks.
- * Absolute URLs are only allowed if their origin is in CORS_ORIGINS.
- * If CORS_ORIGINS is empty/unset, absolute URLs are rejected (safe by default).
+ * Absolute URLs are only allowed if their origin is in the shared allowlist.
  * Relative paths starting with a single `/` are always allowed.
  */
 export function sanitizeRedirect(redirectTo: string): string {
   if (redirectTo === '/') return redirectTo;
   try {
     const url = new URL(redirectTo);
-    const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (allowed.length === 0 || !allowed.includes(url.origin)) return '/';
+    const allowed = getAllowedOrigins();
+    if (!allowed.includes(url.origin)) return '/';
     return redirectTo;
   } catch {
     // Not a valid absolute URL — only allow paths starting with a single slash
