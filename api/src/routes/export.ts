@@ -1150,14 +1150,16 @@ router.get('/timeline/pptx', async (_req, res) => {
         monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
       }
 
-      // "Today" marker
+      // "Today" marker — position based on actual date offset from axis start
+      const todayOffset = (today.getTime() - minDate.getTime()) / 86_400_000;
+      const todayX = tlLeft + (todayOffset / totalDays) * tlWidth;
       slide.addShape('line', {
-        x: tlLeft, y: 1.45, w: 0,
+        x: todayX, y: 1.45, w: 0,
         h: startY + futureMilestones.length * (barH + barGap) - 1.45,
         line: { color: 'cc3333', width: 1, dashType: 'dash' },
       });
       slide.addText('Today', {
-        x: tlLeft - 0.5, y: 1.15, w: 1.0, h: 0.3, fontSize: 8, fontFace: 'Arial', color: 'cc3333', align: 'center',
+        x: todayX - 0.5, y: 1.15, w: 1.0, h: 0.3, fontSize: 8, fontFace: 'Arial', color: 'cc3333', align: 'center',
       });
 
       for (let i = 0; i < futureMilestones.length; i++) {
@@ -1182,11 +1184,11 @@ router.get('/timeline/pptx', async (_req, res) => {
           fill: { color }, rectRadius: 0.05,
         });
 
-        // Date + count on bar
+        // Date + stats below the bar (avoids text overflow on narrow bar)
         const completionPct = ms.outcomeCount > 0 ? Math.round((ms.completedCount / ms.outcomeCount) * 100) : 0;
-        slide.addText(`${ms.targetDate}  ·  ${ms.outcomeCount} outcomes  ·  ${completionPct}%`, {
-          x: markerX, y, w: barW, h: barH,
-          fontSize: 7, fontFace: 'Arial', color: BRAND.white, align: 'center', valign: 'middle',
+        slide.addText(`${ms.targetDate}  ·  ${ms.outcomeCount} items  ·  ${completionPct}%`, {
+          x: markerX - 0.5, y: y + barH, w: barW + 1.0, h: 0.25,
+          fontSize: 7, fontFace: 'Arial', color: BRAND.muted, align: 'center', valign: 'top',
         });
       }
 
