@@ -30,13 +30,7 @@ function titleFromSlugId(slugId: unknown): string | null {
 watch(() => [route.name, route.params.slugId], ([name]) => {
   const section = routeTitles[name as string] ?? 'moou';
   const item = titleFromSlugId(route.params.slugId);
-  if (item) {
-    document.title = `${item} · ${section} · moou`;
-  } else if (name && name !== 'timeline') {
-    document.title = `${section} · moou`;
-  } else {
-    document.title = 'moou';
-  }
+  document.title = item ? `${section} · ${item}` : section;
 }, { immediate: true });
 
 const showUserMenu = ref(false);
