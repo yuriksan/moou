@@ -897,11 +897,22 @@ router.get('/timeline/pptx', async (_req, res) => {
     const startY = 1.2;
 
     // Card 1: Revenue at Risk (top-left)
+    const customerDemands = motivationsByType.get('Customer Demand') || [];
+    const revenuePopulated = customerDemands.filter(m => Number(m.attributes.revenue_at_risk || 0) > 0).length;
+    const revenueCompleteness = customerDemands.length > 0 ? revenuePopulated / customerDemands.length : 0;
+    let revSublabel: string;
+    if (customerDemands.length === 0) {
+      revSublabel = '(no customer demands)';
+    } else if (revenueCompleteness < 0.5) {
+      revSublabel = `(${Math.round(revenueCompleteness * 100)}% of demands have revenue data)`;
+    } else {
+      revSublabel = `across ${customerDemands.length} customer demands`;
+    }
     addKpiCard(slide, {
       x: startX, y: startY, w: cardW, h: cardH,
       bgColor: 'fef2f2', value: formatCurrency(metrics.totalRevenueAtRisk),
       label: 'Revenue at Risk',
-      sublabel: metrics.totalRevenueAtRisk === 0 ? '(no data)' : `across ${(motivationsByType.get('Customer Demand') || []).length} customer demands`,
+      sublabel: revSublabel,
     });
 
     // Card 2: On Track % (top-right)
@@ -914,15 +925,18 @@ router.get('/timeline/pptx', async (_req, res) => {
       sublabel: `${metrics.outcomesOnTrack} active/approved of ${metrics.outcomesTotal} total  ·  ${metrics.outcomesCompleted} completed`,
     });
 
-    // Card 3: Next Compliance Deadline (bottom-left)
+    // Card 3: Compliance Deadline (bottom-left)
     const complianceValue = metrics.complianceDaysUntil !== null
-      ? (metrics.complianceDaysUntil < 0 ? `Overdue ${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil}d`)
+      ? (metrics.complianceDaysUntil < 0 ? `${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil}d`)
       : 'None';
+    const complianceLabel = metrics.complianceDaysUntil === null
+      ? 'Compliance Deadline'
+      : (metrics.complianceDaysUntil < 0 ? 'Days Overdue' : 'Until Next Deadline');
     const complianceBg = metrics.complianceDaysUntil !== null && metrics.complianceDaysUntil <= 30 ? 'faf5ff' : 'f8fafc';
     addKpiCard(slide, {
       x: startX, y: startY + cardH + gapY, w: cardW, h: cardH,
       bgColor: complianceBg, value: complianceValue,
-      label: 'Until Next Compliance Deadline',
+      label: complianceLabel,
       sublabel: metrics.complianceRegulation ? truncate(metrics.complianceRegulation, 40) : undefined,
     });
 
