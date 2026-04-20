@@ -204,6 +204,7 @@ export const api = {
   // Export/Import
   exportTimelineUrl: () => `${BASE}/export/timeline`,
   exportMarkdownUrl: () => `${BASE}/export/timeline/markdown`,
+  exportPptxUrl: () => `${BASE}/export/timeline/pptx`,
   importTimelineDiff: async (file: File) => {
     const buffer = await file.arrayBuffer();
     const res = await fetch(`${BASE}/import/timeline/diff`, {

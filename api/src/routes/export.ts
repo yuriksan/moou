@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const PptxGenJS = require('pptxgenjs');
 import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
@@ -673,6 +676,361 @@ router.get('/timeline/markdown', async (_req, res) => {
   res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="timeline-${new Date().toISOString().split('T')[0]}.md"`);
   res.send(md);
+});
+
+// ─── GET /export/timeline/pptx ───
+
+// Colour palette
+const BRAND = {
+  dark: '2d2d2d',
+  accent: '4a7c59',
+  accentLight: 'e8f0eb',
+  muted: '888888',
+  headerBg: 'e8e7e3',
+  white: 'ffffff',
+  customerBg: 'eef4f9',
+  complianceBg: 'f5eef9',
+  mandateBg: 'fef8ee',
+  techDebtBg: 'feeeee',
+  competitiveBg: 'eef9f5',
+};
+
+function formatCurrency(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n}`;
+}
+
+function formatScore(s: string | number | null): string {
+  return Number(s || 0).toLocaleString('en', { maximumFractionDigits: 0 });
+}
+
+function addSectionDivider(pres: any, title: string, subtitle: string, bgColor: string) {
+  const slide = pres.addSlide();
+  slide.background = { color: bgColor };
+  slide.addText(title, { x: 0.8, y: 1.8, w: 8.4, h: 1.2, fontSize: 32, fontFace: 'Arial', color: BRAND.dark, bold: true });
+  slide.addText(subtitle, { x: 0.8, y: 3.0, w: 8.4, h: 0.6, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+}
+
+router.get('/timeline/pptx', async (_req, res) => {
+  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData();
+
+  const pres = new PptxGenJS();
+  pres.author = 'moou';
+  pres.title = 'Product Roadmap';
+  pres.layout = 'LAYOUT_WIDE';
+
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  // ─── Title slide ───
+  const titleSlide = pres.addSlide();
+  titleSlide.background = { color: BRAND.dark };
+  titleSlide.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 8.4, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
+  titleSlide.addText(`Generated ${dateStr} · moou`, { x: 0.8, y: 3.2, w: 8.4, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+
+  // ─── Section 1: Customer Demands ───
+  const customerMotivations = motivationsByType.get('Customer Demand') || [];
+
+  if (customerMotivations.length > 0) {
+    addSectionDivider(pres, 'Customer Demands', 'Revenue-linked outcomes prioritised by customer impact', BRAND.customerBg);
+
+    // Group by customer name
+    const byCustomer = new Map<string, MotivationRow[]>();
+    for (const m of customerMotivations) {
+      const name = (m.attributes.customer_name as string) || 'Unknown';
+      if (!byCustomer.has(name)) byCustomer.set(name, []);
+      byCustomer.get(name)!.push(m);
+    }
+
+    // Sort customers by total revenue at risk descending
+    const sortedCustomers = [...byCustomer.entries()].sort((a, b) => {
+      const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+      const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+      return revB - revA;
+    });
+
+    for (const [customerName, mots] of sortedCustomers) {
+      const slide = pres.addSlide();
+      const totalRev = mots.reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+      const totalOpp = mots.reduce((sum, m) => sum + Number(m.attributes.revenue_opportunity || 0), 0);
+      const segment = (mots[0]?.attributes.segment as string) || '';
+      const dealStage = (mots[0]?.attributes.deal_stage as string) || '';
+
+      // Header
+      slide.addText(customerName, { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+
+      // Summary badges
+      const badges = [
+        segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : null,
+        dealStage ? `Deal: ${dealStage}` : null,
+        totalRev ? `Revenue at risk: ${formatCurrency(totalRev)}` : null,
+        totalOpp ? `Opportunity: ${formatCurrency(totalOpp)}` : null,
+      ].filter(Boolean).join('  ·  ');
+      slide.addText(badges, { x: 0.5, y: 0.9, w: 9, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+
+      // Table of linked outcomes
+      const headerRow = [
+        { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+        { text: 'Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+        { text: 'Impact', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+        { text: 'Confidence', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+        { text: 'Target', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+        { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      ];
+
+      const dataRows = mots.map(m => [
+        { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
+        { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
+        { text: (m.attributes.impact_type as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+        { text: m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '—', options: { fontSize: 9, color: BRAND.dark } },
+        { text: m.targetDate || '—', options: { fontSize: 9, color: BRAND.dark } },
+        { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+      ]);
+
+      slide.addTable([headerRow, ...dataRows], {
+        x: 0.5, y: 1.5, w: 12.3,
+        colW: [3.0, 3.0, 1.2, 1.2, 1.2, 1.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+        rowH: 0.35,
+        autoPage: true,
+        autoPageRepeatHeader: true,
+      });
+    }
+  }
+
+  // ─── Section 2: Overall Timeline ───
+  addSectionDivider(pres, 'Timeline', 'Outcomes grouped by milestone, sorted by priority', BRAND.white);
+
+  // Group outcomes by milestone
+  const outcomesByMs = new Map<string, OutcomeRow[]>();
+  const backlog: OutcomeRow[] = [];
+  for (const o of outcomeRows) {
+    if (o.milestoneName) {
+      if (!outcomesByMs.has(o.milestoneName)) outcomesByMs.set(o.milestoneName, []);
+      outcomesByMs.get(o.milestoneName)!.push(o);
+    } else {
+      backlog.push(o);
+    }
+  }
+
+  for (const ms of milestoneRows) {
+    const msOutcomes = outcomesByMs.get(ms.name) || [];
+    if (msOutcomes.length === 0) continue;
+
+    const slide = pres.addSlide();
+    slide.addText(ms.name, { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText(`${ms.targetDate}  ·  ${ms.type}  ·  ${ms.status}  ·  ${ms.outcomeCount} outcomes  ·  Avg score ${ms.avgPriorityScore}`, {
+      x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
+    });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Effort', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Status', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Top Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Tags', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+
+    const dataRows = msOutcomes.map(o => [
+      { text: o.title, options: { fontSize: 9, color: BRAND.dark } },
+      { text: o.effort || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: o.status, options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(o.priorityScore), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+      { text: o.topMotivationType || '—', options: { fontSize: 9, color: BRAND.muted } },
+      { text: o.tags || '—', options: { fontSize: 9, color: BRAND.muted } },
+    ]);
+
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [3.5, 0.8, 1.2, 1.0, 2.0, 2.0],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  if (backlog.length > 0) {
+    const slide = pres.addSlide();
+    slide.addText('Backlog', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText(`${backlog.length} outcomes not yet assigned to a milestone`, {
+      x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
+    });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Effort', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Status', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Top Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+    const dataRows = backlog.map(o => [
+      { text: o.title, options: { fontSize: 9, color: BRAND.dark } },
+      { text: o.effort || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: o.status, options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(o.priorityScore), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+      { text: o.topMotivationType || '—', options: { fontSize: 9, color: BRAND.muted } },
+    ]);
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [4.5, 1.0, 1.5, 1.2, 2.5],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  // ─── Section 3: Mandates & Engineering ───
+  const mandateMotivations = motivationsByType.get('Internal Mandate') || [];
+  const techDebtMotivations = motivationsByType.get('Tech Debt') || [];
+  const competitiveMotivations = motivationsByType.get('Competitive Gap') || [];
+  const complianceMotivations = motivationsByType.get('Compliance') || [];
+
+  const hasEngSection = mandateMotivations.length > 0 || techDebtMotivations.length > 0 || competitiveMotivations.length > 0 || complianceMotivations.length > 0;
+
+  if (hasEngSection) {
+    addSectionDivider(pres, 'Mandates & Engineering', 'Internal mandates, tech debt, compliance, and competitive pressure', BRAND.mandateBg);
+  }
+
+  // Internal Mandates
+  if (mandateMotivations.length > 0) {
+    const slide = pres.addSlide();
+    slide.addText('Internal Mandates', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText('Leadership-driven and strategy-mandated work', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Mandate', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Stakeholder', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Type', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Priority', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Target', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+    const dataRows = mandateMotivations.map(m => [
+      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
+      { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.stakeholder as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.mandate_type as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.priority_override as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: m.targetDate || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+    ]);
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [2.8, 2.5, 1.5, 1.2, 1.0, 1.2, 0.8],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  // Tech Debt
+  if (techDebtMotivations.length > 0) {
+    const slide = pres.addSlide();
+    slide.addText('Tech Debt', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText('Operational burden, incident frequency, and architectural risk', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Issue', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Incidents/mo', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Blast Radius', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Support hrs', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Arch Risk', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+    const dataRows = techDebtMotivations.map(m => [
+      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
+      { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
+      { text: String(m.attributes.incident_frequency ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.blast_radius as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: String(m.attributes.support_hours_monthly ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.architectural_risk as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+    ]);
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [2.8, 2.5, 1.2, 1.5, 1.2, 1.2, 0.8],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  // Compliance
+  if (complianceMotivations.length > 0) {
+    const slide = pres.addSlide();
+    slide.addText('Compliance', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText('Regulatory requirements with legal exposure', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Regulation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Deadline', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Severity', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Legal Exposure', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+    const dataRows = complianceMotivations.map(m => [
+      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.regulation as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.mandate_deadline as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.penalty_severity as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: m.attributes.legal_exposure != null ? formatCurrency(Number(m.attributes.legal_exposure)) : '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+    ]);
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [3.0, 2.5, 1.5, 1.2, 1.5, 1.0],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  // Competitive Gaps
+  if (competitiveMotivations.length > 0) {
+    const slide = pres.addSlide();
+    slide.addText('Competitive Gaps', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+    slide.addText('Feature gaps relative to competitors causing lost deals', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+
+    const headerRow = [
+      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Competitor', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Gap Severity', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Deals Lost', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Confidence', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
+    ];
+    const dataRows = competitiveMotivations.map(m => [
+      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.competitor as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: (m.attributes.gap_severity as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: String(m.attributes.deals_lost ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
+      { text: m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '—', options: { fontSize: 9, color: BRAND.dark } },
+      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+    ]);
+    slide.addTable([headerRow, ...dataRows], {
+      x: 0.5, y: 1.5, w: 12.3,
+      colW: [3.0, 2.0, 1.8, 1.2, 1.2, 1.0],
+      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+      rowH: 0.35,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+    });
+  }
+
+  // ─── Send response ───
+  const buffer = await pres.write({ outputType: 'nodebuffer' }) as Buffer;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  res.setHeader('Content-Disposition', `attachment; filename="roadmap-${dateStr}.pptx"`);
+  res.send(buffer);
 });
 
 export { buildStructuredData };
