@@ -704,6 +704,12 @@ const TYPE_COLORS: Record<string, string> = {
   'Internal Mandate': 'c4914a',
 };
 
+/** Parse a date-only string (YYYY-MM-DD) as local midnight, avoiding UTC timezone shift. */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
@@ -804,9 +810,13 @@ export function computeExecMetrics(
     totalLegalExposure += Number(m.attributes.legal_exposure || 0);
     const deadline = m.attributes.mandate_deadline as string | undefined;
     if (deadline) {
-      const d = new Date(deadline);
+      const d = parseLocalDate(deadline);
       const days = Math.ceil((d.getTime() - today.getTime()) / 86_400_000);
-      if (days >= 0 && (complianceDaysUntil === null || days < complianceDaysUntil)) {
+      // Prefer nearest future deadline; fall back to most-recent overdue if no future exists
+      const isBetter = complianceDaysUntil === null
+        || (days >= 0 && (complianceDaysUntil < 0 || days < complianceDaysUntil))
+        || (days < 0 && complianceDaysUntil < 0 && days > complianceDaysUntil);
+      if (isBetter) {
         complianceDaysUntil = days;
         nearestComplianceDeadline = deadline;
         complianceRegulation = (m.attributes.regulation as string) || null;
@@ -905,7 +915,9 @@ router.get('/timeline/pptx', async (_req, res) => {
     });
 
     // Card 3: Next Compliance Deadline (bottom-left)
-    const complianceValue = metrics.complianceDaysUntil !== null ? `${metrics.complianceDaysUntil}d` : 'None';
+    const complianceValue = metrics.complianceDaysUntil !== null
+      ? (metrics.complianceDaysUntil < 0 ? `Overdue ${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil}d`)
+      : 'None';
     const complianceBg = metrics.complianceDaysUntil !== null && metrics.complianceDaysUntil <= 30 ? 'faf5ff' : 'f8fafc';
     addKpiCard(slide, {
       x: startX, y: startY + cardH + gapY, w: cardW, h: cardH,
@@ -1082,7 +1094,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       const slide = pres.addSlide();
       slide.addText('Timeline Overview', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
 
-      const dates = futureMilestones.map(ms => new Date(ms.targetDate));
+      const dates = futureMilestones.map(ms => parseLocalDate(ms.targetDate));
       const minDate = today;
       const maxDate = new Date(Math.max(...dates.map(d => d.getTime()), today.getTime() + 30 * 86_400_000));
       const totalDays = Math.max((maxDate.getTime() - minDate.getTime()) / 86_400_000, 1);
@@ -1123,7 +1135,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       for (let i = 0; i < futureMilestones.length; i++) {
         const ms = futureMilestones[i];
-        const msDate = new Date(ms.targetDate);
+        const msDate = parseLocalDate(ms.targetDate);
         const dayOffset = (msDate.getTime() - minDate.getTime()) / 86_400_000;
         let markerX = tlLeft + (dayOffset / totalDays) * tlWidth - barW / 2;
         // Clamp to slide bounds
@@ -1257,17 +1269,15 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       const cards: { color: string; title: string; metric: string; detail1: string; detail2: string }[] = [];
 
-      // Compliance card
+      // Compliance card — use metrics which already track the nearest deadline
       if (complianceMotivations.length > 0) {
-        const topComp = complianceMotivations.slice().sort((a, b) => {
-          const dA = a.attributes.mandate_deadline as string | undefined;
-          const dB = b.attributes.mandate_deadline as string | undefined;
-          return (dA || '9999').localeCompare(dB || '9999');
-        })[0];
+        const compMetric = metrics.complianceDaysUntil !== null
+          ? (metrics.complianceDaysUntil < 0 ? `Overdue ${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil} days`)
+          : 'No deadline';
         cards.push({
           color: '8a4ac4',
           title: 'Compliance',
-          metric: metrics.complianceDaysUntil !== null ? `${metrics.complianceDaysUntil} days` : 'No deadline',
+          metric: compMetric,
           detail1: metrics.complianceRegulation ? truncate(metrics.complianceRegulation, 35) : '',
           detail2: metrics.totalLegalExposure > 0 ? `Legal exposure: ${formatCurrency(metrics.totalLegalExposure)}` : '',
         });
@@ -1361,14 +1371,17 @@ router.get('/timeline/pptx', async (_req, res) => {
   // ═══════════════════════════════════════════════
   {
     const decisions: { title: string; detail: string; recommendation: string }[] = [];
+    const outcomesById = new Map(outcomeRows.map(o => [o.id, o]));
 
     // 1. Compliance vs Delivery: compliance deadline before its outcome's milestone date
     for (const m of complianceMotivations) {
       const deadline = m.attributes.mandate_deadline as string | undefined;
       if (!deadline) continue;
-      const outcome = outcomeRows.find(o => o.id === m.outcomeId);
+      const outcome = outcomesById.get(m.outcomeId);
       if (!outcome?.milestoneDate) continue;
-      if (deadline < outcome.milestoneDate) {
+      const deadlineDate = parseLocalDate(deadline);
+      const milestoneDate = parseLocalDate(outcome.milestoneDate);
+      if (deadlineDate < milestoneDate) {
         decisions.push({
           title: `Compliance deadline before delivery`,
           detail: `"${truncate(m.title, 40)}" deadline is ${deadline}, but milestone "${truncate(outcome.milestoneName || '', 25)}" targets ${outcome.milestoneDate}`,

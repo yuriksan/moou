@@ -414,7 +414,7 @@ describe('computeExecMetrics', () => {
     expect(metrics.totalLegalExposure).toBe(500000);
     expect(metrics.outcomesTotal).toBe(3);
     expect(metrics.outcomesCompleted).toBe(1);
-    expect(metrics.outcomesOnTrack).toBe(1); // only 'active' counts
+    expect(metrics.outcomesOnTrack).toBe(1); // 'active' and 'approved' count; only one qualifying row here
     expect(metrics.backlogCount).toBe(1); // milestoneId null
     expect(metrics.complianceRegulation).toBe('GDPR');
     expect(metrics.techDebtIncidentsTotal).toBe(8);
@@ -431,5 +431,46 @@ describe('computeExecMetrics', () => {
     expect(metrics.backlogCount).toBe(0);
     expect(metrics.nearestComplianceDeadline).toBeNull();
     expect(metrics.complianceDaysUntil).toBeNull();
+  });
+
+  it('tracks overdue compliance deadlines', async () => {
+    const { computeExecMetrics } = await import('../routes/export.js');
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 5);
+    const overdueDate = yesterday.toISOString().split('T')[0];
+
+    const motivationsByType = new Map([
+      ['Compliance', [
+        { score: '100', attributes: { mandate_deadline: overdueDate, regulation: 'SOX', legal_exposure: 100000 } },
+      ] as any[]],
+    ]);
+
+    const metrics = computeExecMetrics([], motivationsByType);
+    expect(metrics.complianceDaysUntil).toBeLessThan(0);
+    expect(metrics.complianceRegulation).toBe('SOX');
+    expect(metrics.nearestComplianceDeadline).toBe(overdueDate);
+  });
+
+  it('prefers future deadlines over overdue ones', async () => {
+    const { computeExecMetrics } = await import('../routes/export.js');
+
+    const past = new Date();
+    past.setDate(past.getDate() - 10);
+    const future = new Date();
+    future.setDate(future.getDate() + 3);
+
+    const motivationsByType = new Map([
+      ['Compliance', [
+        { score: '50', attributes: { mandate_deadline: past.toISOString().split('T')[0], regulation: 'Old', legal_exposure: 0 } },
+        { score: '80', attributes: { mandate_deadline: future.toISOString().split('T')[0], regulation: 'Upcoming', legal_exposure: 0 } },
+      ] as any[]],
+    ]);
+
+    const metrics = computeExecMetrics([], motivationsByType);
+    // Future deadline (3 days) should be preferred over overdue (-10 days)
+    expect(metrics.complianceDaysUntil).toBeGreaterThanOrEqual(2);
+    expect(metrics.complianceDaysUntil).toBeLessThanOrEqual(4);
+    expect(metrics.complianceRegulation).toBe('Upcoming');
   });
 });
