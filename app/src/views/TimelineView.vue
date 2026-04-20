@@ -254,6 +254,10 @@ function exportMarkdown() {
   window.open(api.exportMarkdownUrl(), '_blank');
 }
 
+function exportPptx() {
+  window.open(api.exportPptxUrl(), '_blank');
+}
+
 function triggerImport() {
   fileInput.value?.click();
 }
@@ -344,6 +348,7 @@ async function onOutcomeSaved(outcome: any) {
         <div class="header-buttons">
           <button class="btn btn-sm" @click="exportExcel" title="Download Excel">Export Excel</button>
           <button class="btn btn-sm" @click="exportMarkdown" title="Download Markdown">Export MD</button>
+          <button class="btn btn-sm" @click="exportPptx" title="Download PowerPoint roadmap">Export PPTX</button>
           <button class="btn btn-sm" @click="triggerImport" title="Import modified spreadsheet">Import</button>
           <input ref="fileInput" type="file" accept=".xlsx" style="display:none" @change="handleImportFile" />
           <span class="header-sep"></span>
