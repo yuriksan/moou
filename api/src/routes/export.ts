@@ -1432,7 +1432,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       }
     }
 
-    // 3. Unplanned high-priority: top-scoring motivations on backlog outcomes
+    // 3. Unplanned high-priority: highest-scoring motivation linked to a backlog outcome
     const backlogOutcomeIds = new Set(outcomeRows.filter(o => !o.milestoneId).map(o => o.id));
     const unplannedHighPri = allMotivations
       .filter(m => backlogOutcomeIds.has(m.outcomeId))
