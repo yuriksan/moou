@@ -1121,7 +1121,8 @@ router.get('/timeline/pptx', async (_req, res) => {
       slide.addText('Timeline Overview', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
 
       const dates = futureMilestones.map(ms => parseDateUTC(ms.targetDate));
-      const minDate = today;
+      // Axis starts at earliest of today or earliest milestone (handles overdue milestones)
+      const minDate = new Date(Math.min(today.getTime(), ...dates.map(d => d.getTime())));
       const maxDate = new Date(Math.max(...dates.map(d => d.getTime()), today.getTime() + 30 * 86_400_000));
       const totalDays = Math.max((maxDate.getTime() - minDate.getTime()) / 86_400_000, 1);
 
@@ -1438,18 +1439,19 @@ router.get('/timeline/pptx', async (_req, res) => {
       }
     }
 
-    // 3. Unplanned high-priority: highest-scoring motivation linked to a backlog outcome
+    // 3. Unplanned high-priority: top backlog motivations without a delivery plan
     const backlogOutcomeIds = new Set(outcomeRows.filter(o => !o.milestoneId).map(o => o.id));
     const unplannedHighPri = allMotivations
-      .filter(m => backlogOutcomeIds.has(m.outcomeId))
+      .filter(m => backlogOutcomeIds.has(m.outcomeId) && Number(m.score || 0) > 0)
       .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
-      .slice(0, 1);
+      .slice(0, 3);
 
-    if (unplannedHighPri.length > 0 && Number(unplannedHighPri[0].score || 0) > 0) {
-      const m = unplannedHighPri[0];
+    if (unplannedHighPri.length > 0) {
+      const names = unplannedHighPri.map(m => `"${truncate(m.title, 30)}"`).join(', ');
+      const topM = unplannedHighPri[0];
       decisions.push({
-        title: `High-priority item has no delivery plan`,
-        detail: `"${truncate(m.title, 40)}" (${m.typeName}, score ${formatScore(m.score)}) is not assigned to any milestone`,
+        title: `${unplannedHighPri.length} high-priority item${unplannedHighPri.length > 1 ? 's have' : ' has'} no delivery plan`,
+        detail: `${names} (top score: ${formatScore(topM.score)}, ${topM.typeName}) not assigned to any milestone`,
         recommendation: 'Assign to a milestone or create a new one',
       });
     }

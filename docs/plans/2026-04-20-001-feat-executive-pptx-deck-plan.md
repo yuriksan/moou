@@ -35,7 +35,7 @@ Replace the existing PPTX route with a restructured deck using pptxgenjs charts,
 
 ### File: `api/src/routes/export.ts`
 
-All changes are in the existing `GET /timeline/pptx` handler (lines 715-1034). The `buildStructuredData()` function remains unchanged — it already provides all needed data.
+All changes are in the existing `GET /timeline/pptx` handler in `api/src/routes/export.ts`. The `buildStructuredData()` function remains unchanged — it already provides all needed data.
 
 ### Phase 1: Compute Executive Metrics
 
