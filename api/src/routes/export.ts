@@ -704,10 +704,16 @@ const TYPE_COLORS: Record<string, string> = {
   'Internal Mandate': 'c4914a',
 };
 
-/** Parse a date-only string (YYYY-MM-DD) as local midnight, avoiding UTC timezone shift. */
+/** Parse a date-only string (YYYY-MM-DD) as UTC midnight for consistent day math (DST-safe). */
 function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** Get today as UTC midnight for consistent day-difference calculations. */
+function todayUTC(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
 }
 
 function formatCurrency(n: number): string {
@@ -805,8 +811,7 @@ export function computeExecMetrics(
   outcomeRows: OutcomeRow[],
   motivationsByType: Map<string, MotivationRow[]>,
 ): ExecMetrics {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = todayUTC();
 
   // Revenue & legal metrics from motivations
   let totalRevenueAtRisk = 0;
@@ -974,7 +979,9 @@ router.get('/timeline/pptx', async (_req, res) => {
     const typeLabels: string[] = [];
     const typeValues: number[] = [];
     const typeColors: string[] = [];
-    for (const [typeName, totalScore] of metrics.typeScores) {
+    // Sort by score descending for deterministic chart order regardless of DB row order
+    const sortedTypeScores = [...metrics.typeScores.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [typeName, totalScore] of sortedTypeScores) {
       if (totalScore > 0) {
         typeLabels.push(typeName);
         typeValues.push(totalScore);
@@ -1102,12 +1109,11 @@ router.get('/timeline/pptx', async (_req, res) => {
 
   // ─── Timeline overview (Gantt-style markers) ───
   {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = todayUTC();
 
-    // Filter to upcoming/active milestones for the visual, cap at 8
+    // Filter to milestones with future target dates (or incomplete status), cap at 8
     const futureMilestones = milestoneRows
-      .filter(ms => ms.status !== 'completed')
+      .filter(ms => ms.status !== 'completed' && parseLocalDate(ms.targetDate) >= today)
       .slice(0, 8);
 
     if (futureMilestones.length > 0) {
