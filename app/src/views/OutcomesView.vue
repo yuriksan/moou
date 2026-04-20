@@ -41,7 +41,7 @@ async function loadTags() {
 }
 
 onMounted(() => { loadOutcomes(); loadTags(); });
-for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'link_created', 'link_deleted', 'motivation_resolved']) {
+for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'link_created', 'link_deleted', 'motivation_resolved', 'motivation_updated']) {
   on(evt, () => loadOutcomes());
 }
 
@@ -224,10 +224,11 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
             <div v-if="o.tags && o.tags.length" class="row-tags">
               <span
                 v-for="tag in o.tags" :key="tag.id"
-                class="tag row-tag"
+                :class="['tag', 'row-tag', { 'tag-inherited': tag.inherited }]"
                 :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                :title="tag.inherited ? `Inherited from a linked motivation` : tag.name"
                 @click.stop="toggleTag(tag.name)"
-              >{{ tag.emoji }} {{ tag.name }}</span>
+              >{{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span></span>
             </div>
           </div>
           <span class="col-score font-mono" :class="Number(o.priorityScore) > 1000 ? 'score-high' : Number(o.priorityScore) > 100 ? 'score-mid' : 'score-low'">
@@ -268,6 +269,13 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
 }
 .outcomes-view.has-detail {
   grid-template-columns: 1fr 480px;
+}
+
+@media (min-width: 1600px) {
+  .outcomes-view.has-detail { grid-template-columns: 1fr 540px; }
+}
+@media (min-width: 1920px) {
+  .outcomes-view.has-detail { grid-template-columns: 1fr 620px; }
 }
 .side-panel {
   border-left: 1px solid var(--border);

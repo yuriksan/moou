@@ -27,6 +27,7 @@ export const motivationTypes = pgTable('motivation_types', {
   description: text('description'),
   attributeSchema: jsonb('attribute_schema').notNull().$type<Record<string, unknown>>(),
   scoringFormula: text('scoring_formula').notNull(),
+  scoringDescription: text('scoring_description'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

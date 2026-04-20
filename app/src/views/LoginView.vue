@@ -46,7 +46,10 @@ async function startValueEdge() {
   // Open the window synchronously (still in the click event stack) with a
   // placeholder URL so browsers don't block the popup, then redirect it once
   // we have the real auth URL from the server.
-  const authWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  // NOTE: we cannot use 'noopener' here — it causes window.open to return null,
+  // which prevents us from navigating the popup to the auth URL later.
+  // Tabnabbing is not a concern because we control the navigation target.
+  const authWindow = window.open('about:blank', '_blank');
   try {
     const res = await fetch(`${AUTH_BASE}/valueedge/start`, {
       method: 'POST',
@@ -67,6 +70,7 @@ async function startValueEdge() {
     // ensures we don't miss the one-time 200 response.
     startPolling();
     if (authWindow) {
+      authWindow.opener = null; // prevent reverse tabnabbing once navigated
       authWindow.location.href = data.authUrl;
     } else {
       window.open(data.authUrl, '_blank', 'noopener,noreferrer');
@@ -125,7 +129,7 @@ function startPolling() {
 
 // ─── GitHub OAuth redirect ─────────────────────────────────────────────────
 function signInGitHub() {
-  window.location.href = `${AUTH_BASE}/github`;
+  window.location.href = `${AUTH_BASE}/github?returnTo=${encodeURIComponent(window.location.origin)}`;
 }
 </script>
 

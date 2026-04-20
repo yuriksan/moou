@@ -137,15 +137,20 @@ router.get('/', async (req, res) => {
       FROM outcome_motivations om JOIN motivations mot ON mot.id = om.motivation_id
       WHERE om.outcome_id = outcomes.id AND mot.status = 'active' AND mot.target_date IS NOT NULL
     )`,
-    tags: sql<{ id: string; name: string; emoji: string | null; colour: string | null }[]>`coalesce(
-      (SELECT json_agg(jsonb_build_object('id', tg.id::text, 'name', tg.name, 'emoji', tg.emoji, 'colour', tg.colour))
+    tags: sql<{ id: string; name: string; emoji: string | null; colour: string | null; inherited: boolean }[]>`coalesce(
+      (SELECT json_agg(jsonb_build_object('id', tg.id::text, 'name', tg.name, 'emoji', tg.emoji, 'colour', tg.colour, 'inherited', tg.inherited))
        FROM (
-         SELECT t.id, t.name, t.emoji, t.colour FROM outcome_tags ot JOIN tags t ON t.id = ot.tag_id WHERE ot.outcome_id = outcomes.id
-         UNION
-         SELECT t.id, t.name, t.emoji, t.colour FROM outcome_motivations om
-           JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
-           JOIN tags t ON t.id = mt.tag_id
-           WHERE om.outcome_id = outcomes.id
+         SELECT DISTINCT ON (t.id) t.id, t.name, t.emoji, t.colour,
+           NOT EXISTS(SELECT 1 FROM outcome_tags ot2 WHERE ot2.outcome_id = outcomes.id AND ot2.tag_id = t.id) AS inherited
+         FROM (
+           SELECT t.id FROM outcome_tags ot JOIN tags t ON t.id = ot.tag_id WHERE ot.outcome_id = outcomes.id
+           UNION
+           SELECT t.id FROM outcome_motivations om2
+             JOIN motivation_tags mt2 ON mt2.motivation_id = om2.motivation_id
+             JOIN tags t ON t.id = mt2.tag_id
+             WHERE om2.outcome_id = outcomes.id
+         ) tids
+         JOIN tags t ON t.id = tids.id
        ) tg),
       '[]'::json
     )`,
@@ -178,6 +183,12 @@ router.get('/:id', async (req, res) => {
     score: motivations.score,
     attributes: motivations.attributes,
     createdBy: motivations.createdBy,
+    tags: sql<{ id: string; name: string; emoji: string | null; colour: string | null }[]>`coalesce(
+      (SELECT json_agg(jsonb_build_object('id', t.id::text, 'name', t.name, 'emoji', t.emoji, 'colour', t.colour))
+       FROM motivation_tags mt2 JOIN tags t ON t.id = mt2.tag_id
+       WHERE mt2.motivation_id = ${motivations.id}),
+      '[]'::json
+    )`,
   }).from(outcomeMotivations)
     .innerJoin(motivations, eq(outcomeMotivations.motivationId, motivations.id))
     .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id))

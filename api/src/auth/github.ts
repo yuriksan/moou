@@ -11,13 +11,49 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
 const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3000/auth/callback';
 
+/**
+ * Parse configured CORS origins with the same logic used by the CORS middleware.
+ * When CORS_ORIGINS is unset or empty, falls back to the dev default so redirect
+ * validation stays in sync with what CORS actually allows.
+ */
+export function getAllowedOrigins(): string[] {
+  const raw = process.env.CORS_ORIGINS;
+  if (!raw || raw.trim() === '') return ['http://localhost:5173'];
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Sanitise a returnTo redirect value to prevent open-redirect attacks.
+ * Absolute URLs are only allowed if their origin is in the shared allowlist.
+ * Relative paths starting with a single `/` are always allowed.
+ */
+export function sanitizeRedirect(redirectTo: string): string {
+  if (redirectTo === '/') return redirectTo;
+  try {
+    const url = new URL(redirectTo);
+    const allowed = getAllowedOrigins();
+    if (!allowed.includes(url.origin)) return '/';
+    return redirectTo;
+  } catch {
+    // Not a valid absolute URL — only allow paths starting with a single slash
+    if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
+      return '/';
+    }
+    return redirectTo;
+  }
+}
+
 // GET /auth/github — Redirect to GitHub OAuth
 router.get('/github', async (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
 
-  // Store state in session for CSRF validation
+  // Store state and returnTo origin in session for CSRF validation + redirect
   const session = await getSession(req, res);
-  (session as any).oauthState = state;
+  session.oauthState = state;
+  const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '';
+  if (returnTo && returnTo.length < 2048) {
+    session.returnTo = returnTo;
+  }
   await session.save();
 
   const params = new URLSearchParams({
@@ -41,12 +77,11 @@ router.get('/callback', async (req, res) => {
 
   // Validate CSRF state
   const session = await getSession(req, res);
-  const expectedState = (session as any).oauthState;
-  if (!state || state !== expectedState) {
+  if (!state || state !== session.oauthState) {
     res.status(403).send('Invalid state parameter (CSRF check failed)');
     return;
   }
-  delete (session as any).oauthState;
+  delete session.oauthState;
 
   // Exchange code for access token
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -122,10 +157,15 @@ router.get('/callback', async (req, res) => {
     initials,
     avatarUrl: profile.avatar_url,
   };
+
+  // Read and clear returnTo before saving (single save, not two)
+  let redirectTo = session.returnTo || '/';
+  delete session.returnTo;
   await session.save();
 
-  // Redirect to the app
-  res.redirect('/');
+  redirectTo = sanitizeRedirect(redirectTo);
+
+  res.redirect(redirectTo);
 });
 
 // POST /auth/logout

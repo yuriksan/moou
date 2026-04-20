@@ -9,6 +9,30 @@ import Toast from './components/Toast.vue';
 const router = useRouter();
 const route = useRoute();
 
+const routeTitles: Record<string, string> = {
+  timeline: 'Timeline',
+  outcomes: 'Outcomes',
+  motivations: 'Motivations',
+  'tag-admin': 'Tags',
+  'field-config-admin': 'Field Config',
+  login: 'Login',
+};
+
+const UUID_TAIL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function titleFromSlugId(slugId: unknown): string | null {
+  if (!slugId || typeof slugId !== 'string') return null;
+  // Strip the trailing UUID (and any separator hyphen) to recover the human-readable slug.
+  const slug = slugId.replace(UUID_TAIL, '').replace(/-$/, '').replace(/-/g, ' ').trim();
+  return slug || null;
+}
+
+watch(() => [route.name, route.params.slugId], ([name]) => {
+  const section = routeTitles[name as string] ?? 'moou';
+  const item = titleFromSlugId(route.params.slugId);
+  document.title = item ? `${section} · ${item}` : section;
+}, { immediate: true });
+
 const showUserMenu = ref(false);
 const showWalkthrough = ref(false);
 const showAdminMenu = ref(false);
@@ -16,8 +40,18 @@ const authenticatedUser = ref<any>(null);
 const authChecked = ref(false);
 
 onMounted(async () => {
-  // Don't check auth on the login page itself
   if (route.path === '/login') {
+    // On the login page, check if already authenticated (e.g. stale tab after
+    // OAuth completed in another context). If so, redirect to the app.
+    try {
+      const me = await api.getMe();
+      authenticatedUser.value = me;
+      authChecked.value = true;
+      router.replace('/timeline');
+      return;
+    } catch {
+      // Not authenticated — stay on login
+    }
     authChecked.value = true;
     return;
   }

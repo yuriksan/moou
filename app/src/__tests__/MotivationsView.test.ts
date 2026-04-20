@@ -6,8 +6,8 @@ vi.mock('../composables/useApi', () => ({
   api: {
     getMotivations: vi.fn().mockResolvedValue({
       data: [
-        { id: 'm-1', title: 'Acme renewal', typeName: 'Customer Demand', status: 'active', score: '1200', linkedOutcomeCount: 2, createdBy: 'james-obi', attributes: { target_date: '2026-05-01' }, earliestMilestoneDate: '2026-09-30' },
-        { id: 'm-2', title: 'Jenkins debt', typeName: 'Tech Debt', status: 'active', score: '125', linkedOutcomeCount: 1, createdBy: 'dev-patel', attributes: {}, earliestMilestoneDate: null },
+        { id: 'm-1', title: 'Acme renewal', typeName: 'Customer Demand', status: 'active', score: '1200', linkedOutcomeCount: 2, createdBy: 'james-obi', attributes: { target_date: '2026-05-01' }, earliestMilestoneDate: '2026-09-30', scoringDescription: 'Revenue at risk weighted by urgency and confidence' },
+        { id: 'm-2', title: 'Jenkins debt', typeName: 'Tech Debt', status: 'active', score: '125', linkedOutcomeCount: 1, createdBy: 'dev-patel', attributes: {}, earliestMilestoneDate: null, scoringDescription: 'Incident frequency impact' },
       ],
       total: 2,
     }),
@@ -66,6 +66,15 @@ describe('MotivationsView', () => {
     await wrapper.find('.btn-primary').trigger('click');
     await flushPromises();
     expect(wrapper.find('.motivation-form').exists()).toBe(true);
+  });
+
+  it('shows scoringDescription as title attribute on score column', async () => {
+    const wrapper = mount(MotivationsView);
+    await flushPromises();
+
+    const scores = wrapper.findAll('.col-score.font-mono');
+    expect(scores[0]!.attributes('title')).toBe('Revenue at risk weighted by urgency and confidence');
+    expect(scores[1]!.attributes('title')).toBe('Incident frequency impact');
   });
 
   it('opens detail panel on row click', async () => {

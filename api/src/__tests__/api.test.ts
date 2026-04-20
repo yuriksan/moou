@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import './setup.js';
 import request from 'supertest';
 import { app } from '../app.js';
+import { sanitizeRedirect } from '../auth/github.js';
 
 const USER = 'sarah-chen';
 const agent = () => request(app).host(''); // Use app directly
@@ -380,6 +381,20 @@ describe('Mismatch data', () => {
     const found = list.body.data.find((item: any) => item.id === m.body.id);
     expect(found.earliestMilestoneDate).toBe('2026-08-15');
   });
+
+  it('motivations list includes scoringDescription', async () => {
+    const types = await api().get('/motivation-types');
+    const cdType = types.body.find((t: any) => t.name === 'Customer Demand');
+
+    await api().post('/motivations').set('X-User-Id', USER)
+      .send({ title: 'Scoring desc test', typeId: cdType.id, attributes: { revenue_at_risk: 50000 } });
+
+    const list = await api().get('/motivations');
+    const found = list.body.data.find((item: any) => item.title === 'Scoring desc test');
+    expect(found).toBeDefined();
+    expect(found.scoringDescription).toBeDefined();
+    expect(typeof found.scoringDescription).toBe('string');
+  });
 });
 
 describe('Linking', () => {
@@ -612,5 +627,50 @@ describe('Search', () => {
     const titles = res.body.outcomes.map((o: any) => o.title);
     expect(titles).toContain('50% of users');
     expect(titles).not.toContain('unrelated outcome');
+  });
+});
+
+describe('GitHub auth redirect validation (sanitizeRedirect)', () => {
+  const savedCorsOrigins = process.env.CORS_ORIGINS;
+
+  afterEach(() => {
+    // Restore original value
+    if (savedCorsOrigins !== undefined) {
+      process.env.CORS_ORIGINS = savedCorsOrigins;
+    } else {
+      delete process.env.CORS_ORIGINS;
+    }
+  });
+
+  it('allows an absolute URL whose origin is in CORS_ORIGINS', () => {
+    process.env.CORS_ORIGINS = 'http://localhost:5173,https://app.moou.dev';
+    expect(sanitizeRedirect('https://app.moou.dev/dashboard')).toBe('https://app.moou.dev/dashboard');
+  });
+
+  it('rejects an absolute URL whose origin is NOT in CORS_ORIGINS', () => {
+    process.env.CORS_ORIGINS = 'http://localhost:5173';
+    expect(sanitizeRedirect('https://evil.com/steal')).toBe('/');
+  });
+
+  it('allows a relative path starting with /', () => {
+    process.env.CORS_ORIGINS = 'http://localhost:5173';
+    expect(sanitizeRedirect('/motivations')).toBe('/motivations');
+  });
+
+  it('rejects a protocol-relative URL (//evil.com)', () => {
+    process.env.CORS_ORIGINS = 'http://localhost:5173';
+    expect(sanitizeRedirect('//evil.com')).toBe('/');
+  });
+
+  it('falls back to localhost:5173 when CORS_ORIGINS is empty', () => {
+    process.env.CORS_ORIGINS = '';
+    expect(sanitizeRedirect('http://localhost:5173/dashboard')).toBe('http://localhost:5173/dashboard');
+    expect(sanitizeRedirect('https://evil.com/steal')).toBe('/');
+  });
+
+  it('falls back to localhost:5173 when CORS_ORIGINS is unset', () => {
+    delete process.env.CORS_ORIGINS;
+    expect(sanitizeRedirect('http://localhost:5173/motivations')).toBe('http://localhost:5173/motivations');
+    expect(sanitizeRedirect('https://evil.com/steal')).toBe('/');
   });
 });
