@@ -704,8 +704,8 @@ const TYPE_COLORS: Record<string, string> = {
   'Internal Mandate': 'c4914a',
 };
 
-/** Parse a date-only string (YYYY-MM-DD) as UTC midnight for consistent day math (DST-safe). */
-function parseLocalDate(dateStr: string): Date {
+/** Parse a date-only string (YYYY-MM-DD) to UTC midnight for DST-safe day math. */
+function parseDateUTC(dateStr: string): Date {
   const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d));
 }
@@ -713,7 +713,7 @@ function parseLocalDate(dateStr: string): Date {
 /** Get today as UTC midnight for consistent day-difference calculations. */
 function todayUTC(): Date {
   const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
 function formatCurrency(n: number): string {
@@ -830,7 +830,7 @@ export function computeExecMetrics(
     totalLegalExposure += Number(m.attributes.legal_exposure || 0);
     const deadline = m.attributes.mandate_deadline as string | undefined;
     if (deadline) {
-      const d = parseLocalDate(deadline);
+      const d = parseDateUTC(deadline);
       const days = Math.ceil((d.getTime() - today.getTime()) / 86_400_000);
       // Prefer nearest future deadline; fall back to most-recent overdue if no future exists
       const isBetter = complianceDaysUntil === null
@@ -1111,16 +1111,16 @@ router.get('/timeline/pptx', async (_req, res) => {
   {
     const today = todayUTC();
 
-    // Filter to milestones with future target dates (or incomplete status), cap at 8
+    // Include non-completed milestones (active ones with past dates are shown as overdue), cap at 8
     const futureMilestones = milestoneRows
-      .filter(ms => ms.status !== 'completed' && parseLocalDate(ms.targetDate) >= today)
+      .filter(ms => ms.status !== 'completed')
       .slice(0, 8);
 
     if (futureMilestones.length > 0) {
       const slide = pres.addSlide();
       slide.addText('Timeline Overview', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
 
-      const dates = futureMilestones.map(ms => parseLocalDate(ms.targetDate));
+      const dates = futureMilestones.map(ms => parseDateUTC(ms.targetDate));
       const minDate = today;
       const maxDate = new Date(Math.max(...dates.map(d => d.getTime()), today.getTime() + 30 * 86_400_000));
       const totalDays = Math.max((maxDate.getTime() - minDate.getTime()) / 86_400_000, 1);
@@ -1134,19 +1134,19 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       // Month markers along top
       const monthCursor = new Date(minDate);
-      monthCursor.setDate(1);
-      monthCursor.setMonth(monthCursor.getMonth() + 1);
+      monthCursor.setUTCDate(1);
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
       while (monthCursor <= maxDate) {
         const dayOffset = (monthCursor.getTime() - minDate.getTime()) / 86_400_000;
         const x = tlLeft + (dayOffset / totalDays) * tlWidth;
         if (x >= tlLeft && x <= tlLeft + tlWidth) {
-          slide.addText(monthCursor.toLocaleDateString('en', { month: 'short', year: '2-digit' }), {
+          slide.addText(monthCursor.toLocaleDateString('en', { month: 'short', year: '2-digit', timeZone: 'UTC' }), {
             x: x - 0.4, y: 1.15, w: 0.8, h: 0.3, fontSize: 8, fontFace: 'Arial', color: BRAND.muted, align: 'center',
           });
           // Tick line
           slide.addShape('line', { x, y: 1.45, w: 0, h: startY + futureMilestones.length * (barH + barGap) - 1.45, line: { color: 'eeeeee', width: 0.5 } });
         }
-        monthCursor.setMonth(monthCursor.getMonth() + 1);
+        monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
       }
 
       // "Today" marker
@@ -1161,7 +1161,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       for (let i = 0; i < futureMilestones.length; i++) {
         const ms = futureMilestones[i];
-        const msDate = parseLocalDate(ms.targetDate);
+        const msDate = parseDateUTC(ms.targetDate);
         const dayOffset = (msDate.getTime() - minDate.getTime()) / 86_400_000;
         let markerX = tlLeft + (dayOffset / totalDays) * tlWidth - barW / 2;
         // Clamp to slide bounds
@@ -1405,8 +1405,8 @@ router.get('/timeline/pptx', async (_req, res) => {
       if (!deadline) continue;
       const outcome = outcomesById.get(m.outcomeId);
       if (!outcome?.milestoneDate) continue;
-      const deadlineDate = parseLocalDate(deadline);
-      const milestoneDate = parseLocalDate(outcome.milestoneDate);
+      const deadlineDate = parseDateUTC(deadline);
+      const milestoneDate = parseDateUTC(outcome.milestoneDate);
       if (deadlineDate < milestoneDate) {
         decisions.push({
           title: `Compliance deadline before delivery`,

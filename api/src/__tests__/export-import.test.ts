@@ -378,6 +378,8 @@ describe('PPTX Export', () => {
       .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
 
     expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    expect(res.headers['content-disposition']).toContain('roadmap-');
     expect(res.body[0]).toBe(0x50);
     expect(res.body[1]).toBe(0x4B);
   });
