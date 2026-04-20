@@ -695,6 +695,27 @@ const BRAND = {
   competitiveBg: 'eef9f5',
 };
 
+// Chart colors per motivation type
+const TYPE_COLORS: Record<string, string> = {
+  'Customer Demand': '4a90c4',
+  'Tech Debt': 'c44a4a',
+  'Compliance': '8a4ac4',
+  'Competitive Gap': '4ac48a',
+  'Internal Mandate': 'c4914a',
+};
+
+/** Parse a date-only string (YYYY-MM-DD) to UTC midnight for DST-safe day math. */
+function parseDateUTC(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** Get today as UTC midnight for consistent day-difference calculations. */
+function todayUTC(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
@@ -705,11 +726,145 @@ function formatScore(s: string | number | null): string {
   return Number(s || 0).toLocaleString('en', { maximumFractionDigits: 0 });
 }
 
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 1) + '\u2026' : text;
+}
+
+function statusColor(status: string): string {
+  if (status === 'completed') return '2d8a4e';
+  if (status === 'active') return 'c49a1a';
+  return 'aaaaaa';
+}
+
+/** Group customer motivations by name and sort by total revenue at risk descending. */
+function groupCustomersByRevenue(motivations: MotivationRow[]): [string, MotivationRow[]][] {
+  const byCustomer = new Map<string, MotivationRow[]>();
+  for (const m of motivations) {
+    const name = (m.attributes.customer_name as string) || 'Unknown';
+    if (!byCustomer.has(name)) byCustomer.set(name, []);
+    byCustomer.get(name)!.push(m);
+  }
+  return [...byCustomer.entries()].sort((a, b) => {
+    const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+    const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+    return revB - revA;
+  });
+}
+
 function addSectionDivider(pres: any, title: string, subtitle: string, bgColor: string) {
   const slide = pres.addSlide();
   slide.background = { color: bgColor };
-  slide.addText(title, { x: 0.8, y: 1.8, w: 8.4, h: 1.2, fontSize: 32, fontFace: 'Arial', color: BRAND.dark, bold: true });
-  slide.addText(subtitle, { x: 0.8, y: 3.0, w: 8.4, h: 0.6, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+  slide.addText(title, { x: 0.8, y: 1.8, w: 11.7, h: 1.2, fontSize: 32, fontFace: 'Arial', color: BRAND.dark, bold: true });
+  slide.addText(subtitle, { x: 0.8, y: 3.0, w: 11.7, h: 0.6, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+}
+
+function addKpiCard(slide: any, opts: {
+  x: number; y: number; w: number; h: number;
+  bgColor: string; value: string; label: string; sublabel?: string;
+}) {
+  slide.addShape('roundRect', {
+    x: opts.x, y: opts.y, w: opts.w, h: opts.h,
+    fill: { color: opts.bgColor },
+    rectRadius: 0.05,
+    line: { color: 'dddddd', width: 0.5 },
+  });
+  slide.addText(opts.value, {
+    x: opts.x, y: opts.y + 0.3, w: opts.w, h: 1.0,
+    fontSize: 36, fontFace: 'Arial', color: BRAND.dark, bold: true, align: 'center', valign: 'middle',
+  });
+  slide.addText(opts.label, {
+    x: opts.x, y: opts.y + 1.4, w: opts.w, h: 0.5,
+    fontSize: 13, fontFace: 'Arial', color: BRAND.muted, align: 'center', valign: 'top',
+  });
+  if (opts.sublabel) {
+    slide.addText(opts.sublabel, {
+      x: opts.x, y: opts.y + 1.85, w: opts.w, h: 0.4,
+      fontSize: 10, fontFace: 'Arial', color: BRAND.muted, align: 'center', valign: 'top',
+    });
+  }
+}
+
+// Standard table header cell
+function th(text: string) {
+  return { text, options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } };
+}
+function td(text: string, opts?: Record<string, unknown>) {
+  return { text, options: { fontSize: 9, color: BRAND.dark, ...opts } };
+}
+
+interface ExecMetrics {
+  totalRevenueAtRisk: number;
+  totalRevenueOpportunity: number;
+  totalLegalExposure: number;
+  outcomesTotal: number;
+  outcomesCompleted: number;
+  outcomesOnTrack: number;
+  backlogCount: number;
+  nearestComplianceDeadline: string | null;
+  complianceDaysUntil: number | null;
+  complianceRegulation: string | null;
+  techDebtIncidentsTotal: number;
+  typeScores: Map<string, number>;
+}
+
+export function computeExecMetrics(
+  outcomeRows: OutcomeRow[],
+  motivationsByType: Map<string, MotivationRow[]>,
+): ExecMetrics {
+  const today = todayUTC();
+
+  // Revenue & legal metrics from motivations
+  let totalRevenueAtRisk = 0;
+  let totalRevenueOpportunity = 0;
+  let totalLegalExposure = 0;
+  let techDebtIncidentsTotal = 0;
+  let nearestComplianceDeadline: string | null = null;
+  let complianceDaysUntil: number | null = null;
+  let complianceRegulation: string | null = null;
+
+  for (const m of motivationsByType.get('Customer Demand') || []) {
+    totalRevenueAtRisk += Number(m.attributes.revenue_at_risk || 0);
+    totalRevenueOpportunity += Number(m.attributes.revenue_opportunity || 0);
+  }
+  for (const m of motivationsByType.get('Compliance') || []) {
+    totalLegalExposure += Number(m.attributes.legal_exposure || 0);
+    const deadline = m.attributes.mandate_deadline as string | undefined;
+    if (deadline) {
+      const d = parseDateUTC(deadline);
+      const days = Math.ceil((d.getTime() - today.getTime()) / 86_400_000);
+      // Prefer nearest future deadline; fall back to most-recent overdue if no future exists
+      const isBetter = complianceDaysUntil === null
+        || (days >= 0 && (complianceDaysUntil < 0 || days < complianceDaysUntil))
+        || (days < 0 && complianceDaysUntil < 0 && days > complianceDaysUntil);
+      if (isBetter) {
+        complianceDaysUntil = days;
+        nearestComplianceDeadline = deadline;
+        complianceRegulation = (m.attributes.regulation as string) || null;
+      }
+    }
+  }
+  for (const m of motivationsByType.get('Tech Debt') || []) {
+    techDebtIncidentsTotal += Number(m.attributes.incident_frequency || 0);
+  }
+
+  // Outcome metrics
+  const outcomesTotal = outcomeRows.length;
+  const outcomesCompleted = outcomeRows.filter(o => o.status === 'completed').length;
+  const outcomesOnTrack = outcomeRows.filter(o => o.status === 'active' || o.status === 'approved').length;
+  const backlogCount = outcomeRows.filter(o => !o.milestoneId).length;
+
+  // Score totals by motivation type
+  const typeScores = new Map<string, number>();
+  for (const [typeName, mots] of motivationsByType) {
+    typeScores.set(typeName, mots.reduce((sum, m) => sum + Number(m.score || 0), 0));
+  }
+
+  return {
+    totalRevenueAtRisk, totalRevenueOpportunity, totalLegalExposure,
+    outcomesTotal, outcomesCompleted, outcomesOnTrack, backlogCount,
+    nearestComplianceDeadline, complianceDaysUntil, complianceRegulation,
+    techDebtIncidentsTotal, typeScores,
+  };
 }
 
 router.get('/timeline/pptx', async (_req, res) => {
@@ -718,312 +873,797 @@ router.get('/timeline/pptx', async (_req, res) => {
   const pres = new PptxGenJS();
   pres.author = 'moou';
   pres.title = 'Product Roadmap';
-  pres.layout = 'LAYOUT_WIDE';
+  pres.layout = 'LAYOUT_WIDE'; // 13.33" × 7.5"
 
   const dateStr = new Date().toISOString().split('T')[0];
+  const metrics = computeExecMetrics(outcomeRows, motivationsByType);
 
-  // ─── Title slide ───
+  // ─── Empty-data guard ───
+  const allMotivations = [...motivationsByType.values()].flat();
+  if (outcomeRows.length === 0 && allMotivations.length === 0) {
+    const titleSlide2 = pres.addSlide();
+    titleSlide2.background = { color: BRAND.dark };
+    titleSlide2.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 11.7, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
+    titleSlide2.addText(`Generated ${dateStr}  ·  moou`, { x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+    const emptySlide = pres.addSlide();
+    emptySlide.addText('No data yet', { x: 0.8, y: 2.0, w: 11.7, h: 1.0, fontSize: 32, fontFace: 'Arial', color: BRAND.dark, bold: true, align: 'center' });
+    emptySlide.addText('Add outcomes and motivations to generate your roadmap', {
+      x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted, align: 'center',
+    });
+    const buffer = await pres.write({ outputType: 'nodebuffer' }) as Buffer;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    res.setHeader('Content-Disposition', `attachment; filename="roadmap-${dateStr}.pptx"`);
+    res.send(buffer);
+    return;
+  }
+
+  // ═══════════════════════════════════════════════
+  // SLIDE 1: Title
+  // ═══════════════════════════════════════════════
   const titleSlide = pres.addSlide();
   titleSlide.background = { color: BRAND.dark };
-  titleSlide.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 8.4, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
-  titleSlide.addText(`Generated ${dateStr} · moou`, { x: 0.8, y: 3.2, w: 8.4, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+  titleSlide.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 11.7, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
+  titleSlide.addText(`Generated ${dateStr}  ·  moou`, { x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
 
-  // ─── Section 1: Customer Demands ───
+  // ═══════════════════════════════════════════════
+  // SLIDE 2: Executive Summary — 4 KPI cards
+  // ═══════════════════════════════════════════════
+  {
+    const slide = pres.addSlide();
+    slide.addText('Executive Summary', { x: 0.8, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+
+    const cardW = 5.5;
+    const cardH = 2.4;
+    const gapX = 0.5;
+    const gapY = 0.4;
+    const startX = (13.33 - 2 * cardW - gapX) / 2;
+    const startY = 1.2;
+
+    // Card 1: Revenue at Risk (top-left)
+    const customerDemands = motivationsByType.get('Customer Demand') || [];
+    const revenuePopulated = customerDemands.filter(m => m.attributes.revenue_at_risk != null).length;
+    const revenueCompleteness = customerDemands.length > 0 ? revenuePopulated / customerDemands.length : 0;
+    let revSublabel: string;
+    if (customerDemands.length === 0) {
+      revSublabel = '(no customer demands)';
+    } else if (revenueCompleteness < 0.5) {
+      revSublabel = `(${Math.round(revenueCompleteness * 100)}% of demands have revenue data)`;
+    } else {
+      revSublabel = `across ${customerDemands.length} customer demands`;
+    }
+    addKpiCard(slide, {
+      x: startX, y: startY, w: cardW, h: cardH,
+      bgColor: 'fef2f2', value: formatCurrency(metrics.totalRevenueAtRisk),
+      label: 'Revenue at Risk',
+      sublabel: revSublabel,
+    });
+
+    // Card 2: On Track % (top-right)
+    const onTrackPct = metrics.outcomesTotal > 0 ? Math.round((metrics.outcomesOnTrack / metrics.outcomesTotal) * 100) : 0;
+    const onTrackColor = onTrackPct >= 70 ? 'f0fdf4' : onTrackPct >= 40 ? 'fefce8' : 'fef2f2';
+    addKpiCard(slide, {
+      x: startX + cardW + gapX, y: startY, w: cardW, h: cardH,
+      bgColor: onTrackColor, value: `${onTrackPct}%`,
+      label: 'Outcomes On Track',
+      sublabel: `${metrics.outcomesOnTrack} active/approved of ${metrics.outcomesTotal} total  ·  ${metrics.outcomesCompleted} completed`,
+    });
+
+    // Card 3: Compliance Deadline (bottom-left)
+    const complianceValue = metrics.complianceDaysUntil !== null
+      ? (metrics.complianceDaysUntil < 0 ? `${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil}d`)
+      : 'None';
+    const complianceLabel = metrics.complianceDaysUntil === null
+      ? 'Compliance Deadline'
+      : (metrics.complianceDaysUntil < 0 ? 'Days Overdue' : 'Until Next Deadline');
+    const complianceBg = metrics.complianceDaysUntil !== null && metrics.complianceDaysUntil <= 30 ? 'faf5ff' : 'f8fafc';
+    addKpiCard(slide, {
+      x: startX, y: startY + cardH + gapY, w: cardW, h: cardH,
+      bgColor: complianceBg, value: complianceValue,
+      label: complianceLabel,
+      sublabel: metrics.complianceRegulation ? truncate(metrics.complianceRegulation, 40) : undefined,
+    });
+
+    // Card 4: Backlog (bottom-right)
+    addKpiCard(slide, {
+      x: startX + cardW + gapX, y: startY + cardH + gapY, w: cardW, h: cardH,
+      bgColor: 'f8fafc', value: String(metrics.backlogCount),
+      label: 'Unassigned to Milestone',
+      sublabel: metrics.backlogCount > 0 ? 'outcomes in backlog without delivery date' : 'all outcomes are planned',
+    });
+  }
+
+  // ═══════════════════════════════════════════════
+  // SLIDE 3: Portfolio Balance — Doughnut chart
+  // ═══════════════════════════════════════════════
+  {
+    const typeLabels: string[] = [];
+    const typeValues: number[] = [];
+    const typeColors: string[] = [];
+    // Sort by score descending for deterministic chart order regardless of DB row order
+    const sortedTypeScores = [...metrics.typeScores.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [typeName, totalScore] of sortedTypeScores) {
+      if (totalScore > 0) {
+        typeLabels.push(typeName);
+        typeValues.push(totalScore);
+        typeColors.push(TYPE_COLORS[typeName] || BRAND.muted);
+      }
+    }
+
+    if (typeLabels.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Where Priority Weight Concentrates', { x: 0.8, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+
+      // Annotation: dominant type
+      const totalAll = typeValues.reduce((a, b) => a + b, 0);
+      const maxIdx = typeValues.indexOf(Math.max(...typeValues));
+      const dominantPct = Math.round((typeValues[maxIdx] / totalAll) * 100);
+      slide.addText(`${typeLabels[maxIdx]} accounts for ${dominantPct}% of priority weight`, {
+        x: 0.8, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      slide.addChart('doughnut', [{ labels: typeLabels, values: typeValues }], {
+        x: 2.5, y: 1.5, w: 8, h: 5.5,
+        holeSize: 50,
+        showPercent: true,
+        showLabel: true,
+        dataLabelPosition: 'outEnd',
+        dataLabelFontSize: 11,
+        chartColors: typeColors,
+        showLegend: true,
+        legendPos: 'b',
+        legendFontSize: 11,
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════
+  // ACT 2: Customer Impact
+  // ═══════════════════════════════════════════════
   const customerMotivations = motivationsByType.get('Customer Demand') || [];
 
   if (customerMotivations.length > 0) {
-    addSectionDivider(pres, 'Customer Demands', 'Revenue-linked outcomes prioritised by customer impact', BRAND.customerBg);
+    addSectionDivider(pres, 'Customer Impact', 'Revenue-linked outcomes prioritised by customer impact', BRAND.customerBg);
 
-    // Group by customer name
-    const byCustomer = new Map<string, MotivationRow[]>();
-    for (const m of customerMotivations) {
-      const name = (m.attributes.customer_name as string) || 'Unknown';
-      if (!byCustomer.has(name)) byCustomer.set(name, []);
-      byCustomer.get(name)!.push(m);
+    const sortedCustomers = groupCustomersByRevenue(customerMotivations);
+
+    // ─── Bar chart: Top 5 customers by revenue at risk ───
+    const top5 = sortedCustomers.slice(0, 5);
+    if (top5.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Top Customers by Revenue at Risk', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText(`${formatCurrency(metrics.totalRevenueAtRisk)} total across ${sortedCustomers.length} customers`, {
+        x: 0.5, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      const barLabels = top5.map(([name]) => truncate(name, 25));
+      const barValues = top5.map(([, mots]) => mots.reduce((s, m) => s + Number(m.attributes.revenue_at_risk || 0), 0));
+
+      slide.addChart('bar', [{ labels: barLabels, values: barValues }], {
+        x: 0.5, y: 1.5, w: 12, h: 5.5,
+        barDir: 'bar',
+        barGapWidthPct: 80,
+        chartColors: ['4a90c4', '5ba0d4', '6cb0e4', '7dc0f0', '8ed0ff'],
+        showValue: true,
+        dataLabelPosition: 'outEnd',
+        dataLabelFontSize: 11,
+        dataLabelFormatCode: '$#,##0',
+        catAxisOrientation: 'maxMin',
+        valAxisHidden: true,
+        catAxisFontSize: 12,
+        showLegend: false,
+      });
     }
 
-    // Sort customers by total revenue at risk descending
-    const sortedCustomers = [...byCustomer.entries()].sort((a, b) => {
-      const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      return revB - revA;
-    });
-
-    for (const [customerName, mots] of sortedCustomers) {
+    // ─── Top 3 customer detail slides ───
+    const top3 = sortedCustomers.slice(0, 3);
+    for (const [customerName, mots] of top3) {
       const slide = pres.addSlide();
       const totalRev = mots.reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
       const totalOpp = mots.reduce((sum, m) => sum + Number(m.attributes.revenue_opportunity || 0), 0);
       const segment = (mots[0]?.attributes.segment as string) || '';
       const dealStage = (mots[0]?.attributes.deal_stage as string) || '';
 
-      // Header
       slide.addText(customerName, { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
 
-      // Summary badges
       const badges = [
         segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : null,
         dealStage ? `Deal: ${dealStage}` : null,
         totalRev ? `Revenue at risk: ${formatCurrency(totalRev)}` : null,
         totalOpp ? `Opportunity: ${formatCurrency(totalOpp)}` : null,
       ].filter(Boolean).join('  ·  ');
-      slide.addText(badges, { x: 0.5, y: 0.9, w: 9, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+      slide.addText(badges, { x: 0.5, y: 0.9, w: 12, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
 
-      // Table of linked outcomes
-      const headerRow = [
-        { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-        { text: 'Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-        { text: 'Impact', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-        { text: 'Confidence', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-        { text: 'Target', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-        { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      ];
-
-      const dataRows = mots.map(m => [
-        { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
-        { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
-        { text: (m.attributes.impact_type as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-        { text: m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '—', options: { fontSize: 9, color: BRAND.dark } },
-        { text: m.targetDate || '—', options: { fontSize: 9, color: BRAND.dark } },
-        { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
+      // Cap at 5 rows
+      const topMots = mots.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 5);
+      const dataRows = topMots.map(m => [
+        td(truncate(m.outcomeTitle, 35)),
+        td(truncate(m.title, 30)),
+        td((m.attributes.impact_type as string) || '\u2014'),
+        td(m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '\u2014'),
+        td(m.targetDate || '\u2014'),
+        td(formatScore(m.score), { bold: true }),
       ]);
 
-      slide.addTable([headerRow, ...dataRows], {
+      slide.addTable([
+        [th('Outcome'), th('Motivation'), th('Impact'), th('Confidence'), th('Target'), th('Score')],
+        ...dataRows,
+      ], {
         x: 0.5, y: 1.5, w: 12.3,
         colW: [3.0, 3.0, 1.2, 1.2, 1.2, 1.0],
         border: { type: 'solid', pt: 0.5, color: 'cccccc' },
         rowH: 0.35,
-        autoPage: true,
-        autoPageRepeatHeader: true,
+      });
+
+      if (mots.length > 5) {
+        slide.addText(`+ ${mots.length - 5} more in appendix`, {
+          x: 0.5, y: 6.8, w: 12, h: 0.3, fontSize: 10, fontFace: 'Arial', color: BRAND.muted,
+        });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════
+  // ACT 3: Delivery Timeline
+  // ═══════════════════════════════════════════════
+  addSectionDivider(pres, 'Delivery Timeline', 'Milestones and outcomes sorted by priority', BRAND.white);
+
+  // ─── Timeline overview (Gantt-style markers) ───
+  {
+    const today = todayUTC();
+
+    // Include non-completed milestones (active ones with past dates are shown as overdue), cap at 8
+    const futureMilestones = milestoneRows
+      .filter(ms => ms.status !== 'completed')
+      .slice(0, 8);
+
+    if (futureMilestones.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Timeline Overview', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+
+      const dates = futureMilestones.map(ms => parseDateUTC(ms.targetDate));
+      // Axis starts at earliest of today or earliest milestone (handles overdue milestones)
+      const minDate = new Date(Math.min(today.getTime(), ...dates.map(d => d.getTime())));
+      const maxDate = new Date(Math.max(...dates.map(d => d.getTime()), today.getTime() + 30 * 86_400_000));
+      const totalDays = Math.max((maxDate.getTime() - minDate.getTime()) / 86_400_000, 1);
+
+      const tlLeft = 3.0;
+      const tlWidth = 9.5;
+      const barH = 0.45;
+      const barGap = 0.15;
+      const barW = 1.5;
+      const startY = 1.6;
+
+      // Month markers along top
+      const monthCursor = new Date(minDate);
+      monthCursor.setUTCDate(1);
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+      while (monthCursor <= maxDate) {
+        const dayOffset = (monthCursor.getTime() - minDate.getTime()) / 86_400_000;
+        const x = tlLeft + (dayOffset / totalDays) * tlWidth;
+        if (x >= tlLeft && x <= tlLeft + tlWidth) {
+          slide.addText(monthCursor.toLocaleDateString('en', { month: 'short', year: '2-digit', timeZone: 'UTC' }), {
+            x: x - 0.4, y: 1.15, w: 0.8, h: 0.3, fontSize: 8, fontFace: 'Arial', color: BRAND.muted, align: 'center',
+          });
+          // Tick line
+          slide.addShape('line', { x, y: 1.45, w: 0, h: startY + futureMilestones.length * (barH + barGap) - 1.45, line: { color: 'eeeeee', width: 0.5 } });
+        }
+        monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+      }
+
+      // "Today" marker — position based on actual date offset from axis start
+      const todayOffset = (today.getTime() - minDate.getTime()) / 86_400_000;
+      const todayX = tlLeft + (todayOffset / totalDays) * tlWidth;
+      slide.addShape('line', {
+        x: todayX, y: 1.45, w: 0,
+        h: startY + futureMilestones.length * (barH + barGap) - 1.45,
+        line: { color: 'cc3333', width: 1, dashType: 'dash' },
+      });
+      slide.addText('Today', {
+        x: todayX - 0.5, y: 1.15, w: 1.0, h: 0.3, fontSize: 8, fontFace: 'Arial', color: 'cc3333', align: 'center',
+      });
+
+      for (let i = 0; i < futureMilestones.length; i++) {
+        const ms = futureMilestones[i];
+        const msDate = parseDateUTC(ms.targetDate);
+        const dayOffset = (msDate.getTime() - minDate.getTime()) / 86_400_000;
+        let markerX = tlLeft + (dayOffset / totalDays) * tlWidth - barW / 2;
+        // Clamp to slide bounds
+        markerX = Math.max(tlLeft, Math.min(markerX, tlLeft + tlWidth - barW));
+        const y = startY + i * (barH + barGap);
+
+        // Label on left
+        slide.addText(truncate(ms.name, 25), {
+          x: 0.3, y, w: 2.5, h: barH,
+          fontSize: 10, fontFace: 'Arial', color: BRAND.dark, align: 'right', valign: 'middle',
+        });
+
+        // Bar
+        const color = statusColor(ms.status);
+        slide.addShape('roundRect', {
+          x: markerX, y, w: barW, h: barH,
+          fill: { color }, rectRadius: 0.05,
+        });
+
+        // Date + stats below the bar (avoids text overflow on narrow bar)
+        const completionPct = ms.outcomeCount > 0 ? Math.round((ms.completedCount / ms.outcomeCount) * 100) : 0;
+        slide.addText(`${ms.targetDate}  ·  ${ms.outcomeCount} items  ·  ${completionPct}%`, {
+          x: markerX - 0.5, y: y + barH, w: barW + 1.0, h: 0.25,
+          fontSize: 7, fontFace: 'Arial', color: BRAND.muted, align: 'center', valign: 'top',
+        });
+      }
+
+      const remaining = milestoneRows.filter(ms => ms.status !== 'completed').length - futureMilestones.length;
+      if (remaining > 0) {
+        slide.addText(`+ ${remaining} more milestones in appendix`, {
+          x: 0.5, y: startY + futureMilestones.length * (barH + barGap) + 0.2, w: 12, h: 0.3,
+          fontSize: 10, fontFace: 'Arial', color: BRAND.muted,
+        });
+      }
+    } else if (milestoneRows.length > 0) {
+      // All milestones completed — show summary list
+      const slide = pres.addSlide();
+      slide.addText('Completed Milestones', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText('All milestones are completed', { x: 0.5, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted });
+
+      const rows = milestoneRows.slice(0, 10).map(ms => [
+        td(ms.name), td(ms.targetDate), td(`${ms.outcomeCount} outcomes`), td(`${ms.completedCount} done`),
+      ]);
+      slide.addTable([
+        [th('Milestone'), th('Date'), th('Outcomes'), th('Completed')],
+        ...rows,
+      ], { x: 0.5, y: 1.5, w: 12.3, colW: [5, 2, 2.5, 2.8], border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35 });
+    }
+  }
+
+  // ─── Milestone deep dives (next 2 upcoming/active) ───
+  {
+    // Group outcomes by milestone
+    const outcomesByMs = new Map<string, OutcomeRow[]>();
+    for (const o of outcomeRows) {
+      if (o.milestoneName) {
+        if (!outcomesByMs.has(o.milestoneName)) outcomesByMs.set(o.milestoneName, []);
+        outcomesByMs.get(o.milestoneName)!.push(o);
+      }
+    }
+
+    const upcomingMs = milestoneRows
+      .filter(ms => ms.status === 'upcoming' || ms.status === 'active')
+      .slice(0, 2);
+
+    for (const ms of upcomingMs) {
+      const msOutcomes = (outcomesByMs.get(ms.name) || [])
+        .slice().sort((a, b) => Number(b.priorityScore) - Number(a.priorityScore))
+        .slice(0, 5);
+
+      if (msOutcomes.length === 0) continue;
+
+      const slide = pres.addSlide();
+      const completionPct = ms.outcomeCount > 0 ? Math.round((ms.completedCount / ms.outcomeCount) * 100) : 0;
+
+      slide.addText(ms.name, { x: 0.5, y: 0.3, w: 9, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText(`${ms.targetDate}  ·  ${ms.type}  ·  ${ms.outcomeCount} outcomes  ·  ${completionPct}% complete`, {
+        x: 0.5, y: 0.9, w: 12, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      // Progress bar
+      const barX = 0.5, barY = 1.4, barW2 = 12.3, barH2 = 0.15;
+      slide.addShape('rect', { x: barX, y: barY, w: barW2, h: barH2, fill: { color: 'eeeeee' } });
+      if (completionPct > 0) {
+        slide.addShape('rect', { x: barX, y: barY, w: barW2 * (completionPct / 100), h: barH2, fill: { color: '2d8a4e' } });
+      }
+
+      const dataRows = msOutcomes.map(o => [
+        td(truncate(o.title, 40)),
+        td(o.effort || '\u2014'),
+        td(o.status),
+        td(formatScore(o.priorityScore), { bold: true }),
+        td(o.topMotivationType || '\u2014', { color: BRAND.muted }),
+      ]);
+
+      slide.addTable([
+        [th('Outcome'), th('Effort'), th('Status'), th('Score'), th('Top Motivation')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.8, w: 12.3,
+        colW: [4.5, 1.0, 1.5, 1.2, 3.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' },
+        rowH: 0.35,
+      });
+
+      const totalMsOutcomes = (outcomesByMs.get(ms.name) || []).length;
+      if (totalMsOutcomes > 5) {
+        slide.addText(`Top 5 of ${totalMsOutcomes} outcomes by priority score — see appendix for full list`, {
+          x: 0.5, y: 6.8, w: 12, h: 0.3, fontSize: 10, fontFace: 'Arial', color: BRAND.muted,
+        });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════
+  // ACT 4: Risks & Engineering
+  // ═══════════════════════════════════════════════
+  const techDebtMotivations = motivationsByType.get('Tech Debt') || [];
+  const complianceMotivations = motivationsByType.get('Compliance') || [];
+  const competitiveMotivations = motivationsByType.get('Competitive Gap') || [];
+
+  const hasRiskSection = techDebtMotivations.length > 0 || complianceMotivations.length > 0 || competitiveMotivations.length > 0;
+
+  if (hasRiskSection) {
+    addSectionDivider(pres, 'Risks & Engineering', 'Compliance deadlines, tech debt, and competitive pressure', BRAND.techDebtBg);
+
+    // ─── Risk cards (3-column layout) ───
+    {
+      const slide = pres.addSlide();
+      slide.addText('Top Risks', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+
+      const cards: { color: string; title: string; metric: string; detail1: string; detail2: string }[] = [];
+
+      // Compliance card — use metrics which already track the nearest deadline
+      if (complianceMotivations.length > 0) {
+        const compMetric = metrics.complianceDaysUntil !== null
+          ? (metrics.complianceDaysUntil < 0 ? `Overdue ${Math.abs(metrics.complianceDaysUntil)}d` : `${metrics.complianceDaysUntil} days`)
+          : 'No deadline';
+        cards.push({
+          color: '8a4ac4',
+          title: 'Compliance',
+          metric: compMetric,
+          detail1: metrics.complianceRegulation ? truncate(metrics.complianceRegulation, 35) : '',
+          detail2: metrics.totalLegalExposure > 0 ? `Legal exposure: ${formatCurrency(metrics.totalLegalExposure)}` : '',
+        });
+      }
+
+      // Tech Debt card
+      if (techDebtMotivations.length > 0) {
+        const topTD = techDebtMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+        cards.push({
+          color: 'c44a4a',
+          title: 'Tech Debt',
+          metric: `${metrics.techDebtIncidentsTotal} incidents/mo`,
+          detail1: truncate(topTD.title, 35),
+          detail2: `Blast radius: ${(topTD.attributes.blast_radius as string) || 'unknown'}`,
+        });
+      }
+
+      // Competitive card
+      if (competitiveMotivations.length > 0) {
+        const topComp = competitiveMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+        const totalDeals = competitiveMotivations.reduce((s, m) => s + Number(m.attributes.deals_lost || 0), 0);
+        cards.push({
+          color: '4ac48a',
+          title: 'Competitive Gaps',
+          metric: totalDeals > 0 ? `${totalDeals} deals lost` : `${competitiveMotivations.length} gaps`,
+          detail1: `Top: ${truncate((topComp.attributes.competitor as string) || 'Unknown', 25)}`,
+          detail2: `Severity: ${(topComp.attributes.gap_severity as string) || 'unknown'}`,
+        });
+      }
+
+      const cardCount = cards.length;
+      const cardW = 3.5;
+      const gap = 0.5;
+      const totalW = cardCount * cardW + (cardCount - 1) * gap;
+      const offsetX = (13.33 - totalW) / 2;
+
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        const x = offsetX + i * (cardW + gap);
+        const y = 1.3;
+        const h = 4.5;
+
+        // Color bar at top
+        slide.addShape('rect', { x, y, w: cardW, h: 0.08, fill: { color: c.color } });
+
+        // Card background
+        slide.addShape('roundRect', { x, y: y + 0.08, w: cardW, h: h - 0.08, fill: { color: 'fafafa' }, rectRadius: 0.03, line: { color: 'eeeeee', width: 0.5 } });
+
+        // Title
+        slide.addText(c.title, { x, y: y + 0.3, w: cardW, h: 0.5, fontSize: 14, fontFace: 'Arial', color: c.color, bold: true, align: 'center' });
+
+        // Big metric
+        slide.addText(c.metric, { x, y: y + 1.0, w: cardW, h: 1.2, fontSize: 28, fontFace: 'Arial', color: BRAND.dark, bold: true, align: 'center', valign: 'middle' });
+
+        // Detail lines
+        slide.addText(c.detail1, { x: x + 0.2, y: y + 2.5, w: cardW - 0.4, h: 0.5, fontSize: 11, fontFace: 'Arial', color: BRAND.dark, align: 'center' });
+        slide.addText(c.detail2, { x: x + 0.2, y: y + 3.1, w: cardW - 0.4, h: 0.5, fontSize: 11, fontFace: 'Arial', color: BRAND.muted, align: 'center' });
+      }
+    }
+
+    // ─── Tech Debt bar chart (only if >2 items) ───
+    if (techDebtMotivations.length > 2) {
+      const sorted = techDebtMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      const slide = pres.addSlide();
+      slide.addText('Tech Debt by Priority Score', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText(`${techDebtMotivations.length} items  ·  ${metrics.techDebtIncidentsTotal} total incidents/month`, {
+        x: 0.5, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      slide.addChart('bar', [{
+        labels: sorted.map(m => truncate(m.title, 30)),
+        values: sorted.map(m => Number(m.score || 0)),
+      }], {
+        x: 0.5, y: 1.5, w: 12, h: 5.5,
+        barDir: 'bar',
+        barGapWidthPct: 60,
+        chartColors: ['c44a4a'],
+        showValue: true,
+        dataLabelPosition: 'outEnd',
+        dataLabelFontSize: 10,
+        catAxisOrientation: 'maxMin',
+        valAxisHidden: true,
+        catAxisFontSize: 10,
+        showLegend: false,
       });
     }
   }
 
-  // ─── Section 2: Overall Timeline ───
-  addSectionDivider(pres, 'Timeline', 'Outcomes grouped by milestone, sorted by priority', BRAND.white);
+  // ═══════════════════════════════════════════════
+  // ACT 5: Needs Decision
+  // ═══════════════════════════════════════════════
+  {
+    const decisions: { title: string; detail: string; recommendation: string }[] = [];
+    const outcomesById = new Map(outcomeRows.map(o => [o.id, o]));
 
-  // Group outcomes by milestone
-  const outcomesByMs = new Map<string, OutcomeRow[]>();
-  const backlog: OutcomeRow[] = [];
-  for (const o of outcomeRows) {
-    if (o.milestoneName) {
-      if (!outcomesByMs.has(o.milestoneName)) outcomesByMs.set(o.milestoneName, []);
-      outcomesByMs.get(o.milestoneName)!.push(o);
-    } else {
-      backlog.push(o);
+    // 1. Compliance vs Delivery: compliance deadline before its outcome's milestone date
+    for (const m of complianceMotivations) {
+      const deadline = m.attributes.mandate_deadline as string | undefined;
+      if (!deadline) continue;
+      const outcome = outcomesById.get(m.outcomeId);
+      if (!outcome?.milestoneDate) continue;
+      const deadlineDate = parseDateUTC(deadline);
+      const milestoneDate = parseDateUTC(outcome.milestoneDate);
+      if (deadlineDate < milestoneDate) {
+        decisions.push({
+          title: `Compliance deadline before delivery`,
+          detail: `"${truncate(m.title, 40)}" deadline is ${deadline}, but milestone "${truncate(outcome.milestoneName || '', 25)}" targets ${outcome.milestoneDate}`,
+          recommendation: 'Pull the milestone forward or split the outcome',
+        });
+        break; // One is enough for the slide
+      }
+    }
+
+    // 2. Overloaded milestone: highest outcome count with lowest completion %
+    if (milestoneRows.length > 0) {
+      const activeMilestones = milestoneRows.filter(ms => ms.status !== 'completed' && ms.outcomeCount > 0);
+      if (activeMilestones.length > 0) {
+        const worst = activeMilestones.slice().sort((a, b) => {
+          const pctA = a.completedCount / a.outcomeCount;
+          const pctB = b.completedCount / b.outcomeCount;
+          // Prefer milestones that are both large and behind
+          return (pctA - a.outcomeCount * 0.01) - (pctB - b.outcomeCount * 0.01);
+        })[0];
+        const pct = Math.round((worst.completedCount / worst.outcomeCount) * 100);
+        if (pct < 50 && worst.outcomeCount >= 3) {
+          decisions.push({
+            title: `Overloaded milestone`,
+            detail: `"${truncate(worst.name, 30)}" has ${worst.outcomeCount} outcomes but only ${pct}% complete (target: ${worst.targetDate})`,
+            recommendation: 'Reduce scope or extend the target date',
+          });
+        }
+      }
+    }
+
+    // 3. Unplanned high-priority: top backlog motivations without a delivery plan
+    const backlogOutcomeIds = new Set(outcomeRows.filter(o => !o.milestoneId).map(o => o.id));
+    const unplannedHighPri = allMotivations
+      .filter(m => backlogOutcomeIds.has(m.outcomeId) && Number(m.score || 0) > 0)
+      .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+      .slice(0, 3);
+
+    if (unplannedHighPri.length > 0) {
+      const names = unplannedHighPri.map(m => `"${truncate(m.title, 30)}"`).join(', ');
+      const topM = unplannedHighPri[0];
+      decisions.push({
+        title: `${unplannedHighPri.length} high-priority item${unplannedHighPri.length > 1 ? 's have' : ' has'} no delivery plan`,
+        detail: `${names} (top score: ${formatScore(topM.score)}, ${topM.typeName}) not assigned to any milestone`,
+        recommendation: 'Assign to a milestone or create a new one',
+      });
+    }
+
+    if (decisions.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Needs Decision', { x: 0.5, y: 0.3, w: 11.7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText('Trade-offs detected from current data — for discussion', {
+        x: 0.5, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      for (let i = 0; i < decisions.length; i++) {
+        const d = decisions[i];
+        const y = 1.8 + i * 1.7;
+
+        slide.addText([
+          { text: `${i + 1}. ${d.title}\n`, options: { fontSize: 16, bold: true, color: BRAND.dark } },
+          { text: `${d.detail}\n`, options: { fontSize: 12, color: BRAND.dark } },
+          { text: `Recommend: ${d.recommendation}`, options: { fontSize: 12, color: BRAND.accent, italic: true } },
+        ], {
+          x: 0.8, y, w: 11.5, h: 1.5, fontFace: 'Arial', valign: 'top',
+        });
+      }
     }
   }
 
-  for (const ms of milestoneRows) {
-    const msOutcomes = outcomesByMs.get(ms.name) || [];
-    if (msOutcomes.length === 0) continue;
+  // ═══════════════════════════════════════════════
+  // APPENDIX: Detailed tables (all entities)
+  // ═══════════════════════════════════════════════
+  addSectionDivider(pres, 'Appendix', 'Detailed data for reference', BRAND.headerBg);
 
-    const slide = pres.addSlide();
-    slide.addText(ms.name, { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText(`${ms.targetDate}  ·  ${ms.type}  ·  ${ms.status}  ·  ${ms.outcomeCount} outcomes  ·  Avg score ${ms.avgPriorityScore}`, {
-      x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
-    });
+  // ─── All customers ───
+  {
+    const sortedCustomers = groupCustomersByRevenue(customerMotivations);
 
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Effort', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Status', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Top Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Tags', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
+    for (const [customerName, mots] of sortedCustomers) {
+      const slide = pres.addSlide();
+      const totalRev = mots.reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+      slide.addText(`${customerName}  ·  ${formatCurrency(totalRev)} at risk`, {
+        x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true,
+      });
 
-    const dataRows = msOutcomes.map(o => [
-      { text: o.title, options: { fontSize: 9, color: BRAND.dark } },
-      { text: o.effort || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: o.status, options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(o.priorityScore), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-      { text: o.topMotivationType || '—', options: { fontSize: 9, color: BRAND.muted } },
-      { text: o.tags || '—', options: { fontSize: 9, color: BRAND.muted } },
-    ]);
-
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [3.5, 0.8, 1.2, 1.0, 2.0, 2.0],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
+      const dataRows = mots.map(m => [
+        td(m.outcomeTitle), td(m.title),
+        td((m.attributes.impact_type as string) || '\u2014'),
+        td(m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '\u2014'),
+        td(m.targetDate || '\u2014'),
+        td(formatScore(m.score), { bold: true }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Motivation'), th('Impact'), th('Confidence'), th('Target'), th('Score')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [3.0, 3.0, 1.2, 1.2, 1.2, 1.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
   }
 
-  if (backlog.length > 0) {
-    const slide = pres.addSlide();
-    slide.addText('Backlog', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText(`${backlog.length} outcomes not yet assigned to a milestone`, {
-      x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
-    });
+  // ─── All milestones ───
+  {
+    const outcomesByMs = new Map<string, OutcomeRow[]>();
+    const backlog: OutcomeRow[] = [];
+    for (const o of outcomeRows) {
+      if (o.milestoneName) {
+        if (!outcomesByMs.has(o.milestoneName)) outcomesByMs.set(o.milestoneName, []);
+        outcomesByMs.get(o.milestoneName)!.push(o);
+      } else {
+        backlog.push(o);
+      }
+    }
 
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Effort', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Status', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Top Motivation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
-    const dataRows = backlog.map(o => [
-      { text: o.title, options: { fontSize: 9, color: BRAND.dark } },
-      { text: o.effort || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: o.status, options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(o.priorityScore), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-      { text: o.topMotivationType || '—', options: { fontSize: 9, color: BRAND.muted } },
-    ]);
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [4.5, 1.0, 1.5, 1.2, 2.5],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
+    for (const ms of milestoneRows) {
+      const msOutcomes = outcomesByMs.get(ms.name) || [];
+      if (msOutcomes.length === 0) continue;
+
+      const slide = pres.addSlide();
+      slide.addText(ms.name, { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText(`${ms.targetDate}  ·  ${ms.type}  ·  ${ms.status}  ·  ${ms.outcomeCount} outcomes  ·  Avg score ${ms.avgPriorityScore}`, {
+        x: 0.5, y: 0.9, w: 12, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      const dataRows = msOutcomes.map(o => [
+        td(o.title), td(o.effort || '\u2014'), td(o.status),
+        td(formatScore(o.priorityScore), { bold: true }),
+        td(o.topMotivationType || '\u2014', { color: BRAND.muted }),
+        td(o.tags || '\u2014', { color: BRAND.muted }),
+      ]);
+
+      slide.addTable([
+        [th('Outcome'), th('Effort'), th('Status'), th('Score'), th('Top Motivation'), th('Tags')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.5, w: 12.3, colW: [3.5, 0.8, 1.2, 1.0, 2.0, 2.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
+
+    if (backlog.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Backlog', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      slide.addText(`${backlog.length} outcomes not assigned to a milestone`, {
+        x: 0.5, y: 0.9, w: 12, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted,
+      });
+
+      const dataRows = backlog.map(o => [
+        td(o.title), td(o.effort || '\u2014'), td(o.status),
+        td(formatScore(o.priorityScore), { bold: true }),
+        td(o.topMotivationType || '\u2014', { color: BRAND.muted }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Effort'), th('Status'), th('Score'), th('Top Motivation')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.5, w: 12.3, colW: [4.5, 1.0, 1.5, 1.2, 2.5],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
   }
 
-  // ─── Section 3: Mandates & Engineering ───
-  const mandateMotivations = motivationsByType.get('Internal Mandate') || [];
-  const techDebtMotivations = motivationsByType.get('Tech Debt') || [];
-  const competitiveMotivations = motivationsByType.get('Competitive Gap') || [];
-  const complianceMotivations = motivationsByType.get('Compliance') || [];
+  // ─── Motivation type detail tables ───
+  {
+    const mandateMotivations = motivationsByType.get('Internal Mandate') || [];
 
-  const hasEngSection = mandateMotivations.length > 0 || techDebtMotivations.length > 0 || competitiveMotivations.length > 0 || complianceMotivations.length > 0;
+    if (mandateMotivations.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Internal Mandates', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      const dataRows = mandateMotivations.map(m => [
+        td(m.outcomeTitle), td(m.title),
+        td((m.attributes.stakeholder as string) || '\u2014'),
+        td((m.attributes.mandate_type as string) || '\u2014'),
+        td((m.attributes.priority_override as string) || '\u2014'),
+        td(m.targetDate || '\u2014'),
+        td(formatScore(m.score), { bold: true }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Mandate'), th('Stakeholder'), th('Type'), th('Priority'), th('Target'), th('Score')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [2.8, 2.5, 1.5, 1.2, 1.0, 1.2, 0.8],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
 
-  if (hasEngSection) {
-    addSectionDivider(pres, 'Mandates & Engineering', 'Internal mandates, tech debt, compliance, and competitive pressure', BRAND.mandateBg);
-  }
+    if (techDebtMotivations.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Tech Debt', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      const dataRows = techDebtMotivations.map(m => [
+        td(m.outcomeTitle), td(m.title),
+        td(String(m.attributes.incident_frequency ?? '\u2014')),
+        td((m.attributes.blast_radius as string) || '\u2014'),
+        td(String(m.attributes.support_hours_monthly ?? '\u2014')),
+        td((m.attributes.architectural_risk as string) || '\u2014'),
+        td(formatScore(m.score), { bold: true }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Issue'), th('Incidents/mo'), th('Blast Radius'), th('Support hrs'), th('Arch Risk'), th('Score')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [2.8, 2.5, 1.2, 1.5, 1.2, 1.2, 0.8],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
 
-  // Internal Mandates
-  if (mandateMotivations.length > 0) {
-    const slide = pres.addSlide();
-    slide.addText('Internal Mandates', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText('Leadership-driven and strategy-mandated work', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
+    if (complianceMotivations.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Compliance', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      const dataRows = complianceMotivations.map(m => [
+        td(m.outcomeTitle),
+        td((m.attributes.regulation as string) || '\u2014'),
+        td((m.attributes.mandate_deadline as string) || '\u2014'),
+        td((m.attributes.penalty_severity as string) || '\u2014'),
+        td(m.attributes.legal_exposure != null ? formatCurrency(Number(m.attributes.legal_exposure)) : '\u2014'),
+        td(formatScore(m.score), { bold: true }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Regulation'), th('Deadline'), th('Severity'), th('Legal Exposure'), th('Score')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [3.0, 2.5, 1.5, 1.2, 1.5, 1.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
 
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Mandate', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Stakeholder', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Type', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Priority', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Target', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
-    const dataRows = mandateMotivations.map(m => [
-      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
-      { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.stakeholder as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.mandate_type as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.priority_override as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: m.targetDate || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-    ]);
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [2.8, 2.5, 1.5, 1.2, 1.0, 1.2, 0.8],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
-  }
-
-  // Tech Debt
-  if (techDebtMotivations.length > 0) {
-    const slide = pres.addSlide();
-    slide.addText('Tech Debt', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText('Operational burden, incident frequency, and architectural risk', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
-
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Issue', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Incidents/mo', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Blast Radius', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Support hrs', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Arch Risk', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
-    const dataRows = techDebtMotivations.map(m => [
-      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
-      { text: m.title, options: { fontSize: 9, color: BRAND.dark } },
-      { text: String(m.attributes.incident_frequency ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.blast_radius as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: String(m.attributes.support_hours_monthly ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.architectural_risk as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-    ]);
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [2.8, 2.5, 1.2, 1.5, 1.2, 1.2, 0.8],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
-  }
-
-  // Compliance
-  if (complianceMotivations.length > 0) {
-    const slide = pres.addSlide();
-    slide.addText('Compliance', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText('Regulatory requirements with legal exposure', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
-
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Regulation', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Deadline', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Severity', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Legal Exposure', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
-    const dataRows = complianceMotivations.map(m => [
-      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.regulation as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.mandate_deadline as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.penalty_severity as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: m.attributes.legal_exposure != null ? formatCurrency(Number(m.attributes.legal_exposure)) : '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-    ]);
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [3.0, 2.5, 1.5, 1.2, 1.5, 1.0],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
-  }
-
-  // Competitive Gaps
-  if (competitiveMotivations.length > 0) {
-    const slide = pres.addSlide();
-    slide.addText('Competitive Gaps', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 24, fontFace: 'Arial', color: BRAND.dark, bold: true });
-    slide.addText('Feature gaps relative to competitors causing lost deals', { x: 0.5, y: 0.9, w: 10, h: 0.4, fontSize: 11, fontFace: 'Arial', color: BRAND.muted });
-
-    const headerRow = [
-      { text: 'Outcome', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Competitor', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Gap Severity', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Deals Lost', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Confidence', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-      { text: 'Score', options: { bold: true, fontSize: 10, color: BRAND.dark, fill: { color: BRAND.headerBg } } },
-    ];
-    const dataRows = competitiveMotivations.map(m => [
-      { text: m.outcomeTitle, options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.competitor as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: (m.attributes.gap_severity as string) || '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: String(m.attributes.deals_lost ?? '—'), options: { fontSize: 9, color: BRAND.dark } },
-      { text: m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '—', options: { fontSize: 9, color: BRAND.dark } },
-      { text: formatScore(m.score), options: { fontSize: 9, color: BRAND.dark, bold: true } },
-    ]);
-    slide.addTable([headerRow, ...dataRows], {
-      x: 0.5, y: 1.5, w: 12.3,
-      colW: [3.0, 2.0, 1.8, 1.2, 1.2, 1.0],
-      border: { type: 'solid', pt: 0.5, color: 'cccccc' },
-      rowH: 0.35,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-    });
+    if (competitiveMotivations.length > 0) {
+      const slide = pres.addSlide();
+      slide.addText('Competitive Gaps', { x: 0.5, y: 0.3, w: 7, h: 0.6, fontSize: 18, fontFace: 'Arial', color: BRAND.dark, bold: true });
+      const dataRows = competitiveMotivations.map(m => [
+        td(m.outcomeTitle),
+        td((m.attributes.competitor as string) || '\u2014'),
+        td((m.attributes.gap_severity as string) || '\u2014'),
+        td(String(m.attributes.deals_lost ?? '\u2014')),
+        td(m.attributes.confidence != null ? `${Math.round(Number(m.attributes.confidence) * 100)}%` : '\u2014'),
+        td(formatScore(m.score), { bold: true }),
+      ]);
+      slide.addTable([
+        [th('Outcome'), th('Competitor'), th('Gap Severity'), th('Deals Lost'), th('Confidence'), th('Score')],
+        ...dataRows,
+      ], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [3.0, 2.0, 1.8, 1.2, 1.2, 1.0],
+        border: { type: 'solid', pt: 0.5, color: 'cccccc' }, rowH: 0.35,
+        autoPage: true, autoPageRepeatHeader: true,
+      });
+    }
   }
 
   // ─── Send response ───
