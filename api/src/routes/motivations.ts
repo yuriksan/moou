@@ -5,7 +5,7 @@ import {
   motivations, motivationTypes, motivationTags, tags,
   outcomeMotivations, outcomes, milestones,
 } from '../db/schema.js';
-import { eq, sql, and, inArray, desc } from 'drizzle-orm';
+import { eq, sql, and, inArray, desc, ilike } from 'drizzle-orm';
 import { validateAttributes } from '../lib/validate.js';
 import { recordCreate, recordUpdate, recordHistory, recordLink, recordUnlink } from '../lib/history.js';
 import { recalculateMotivation, recalculateOutcome, recalculateLinkedOutcomes } from '../scoring/recalculate.js';
@@ -84,6 +84,10 @@ router.get('/', async (req, res) => {
 
   if (req.query.status) {
     conditions.push(eq(motivations.status, req.query.status as string));
+  }
+
+  if (req.query.search) {
+    conditions.push(ilike(motivations.title, `%${req.query.search}%`));
   }
 
   if (req.query.tags) {

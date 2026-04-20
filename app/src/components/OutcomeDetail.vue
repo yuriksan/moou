@@ -160,13 +160,15 @@ async function deleteOutcome() {
   emit('close');
 }
 
-async function searchMotivations() {
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+function searchMotivations() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   if (!linkSearch.value.trim()) { linkResults.value = []; return; }
-  const res = await api.getMotivations({ limit: '10' });
-  const linkedIds = new Set((outcome.value?.motivations || []).map((m: any) => m.id));
-  linkResults.value = res.data.filter((m: any) =>
-    !linkedIds.has(m.id) && m.title.toLowerCase().includes(linkSearch.value.toLowerCase())
-  );
+  searchDebounceTimer = setTimeout(async () => {
+    const res = await api.getMotivations({ limit: '20', search: linkSearch.value.trim() });
+    const linkedIds = new Set((outcome.value?.motivations || []).map((m: any) => m.id));
+    linkResults.value = res.data.filter((m: any) => !linkedIds.has(m.id));
+  }, 300);
 }
 
 async function linkMotivation(motivationId: string) {
@@ -342,7 +344,7 @@ function timeAgo(dateStr: string): string {
                 :title="tag.inherited ? `Inherited from a linked motivation — edit the motivation to remove` : `Show outcomes tagged ${tag.name}`"
                 @click="navigateToTag(tag.name)"
               >
-                {{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↗</span>
+                {{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span>
               </span>
             </div>
           </div>
@@ -418,6 +420,13 @@ function timeAgo(dateStr: string): string {
             <span class="motivation-card-title">{{ m.title }}</span>
             <span class="motivation-card-score font-mono">{{ Number(m.score).toFixed(0) }}</span>
             <button class="unlink-btn" @click.stop="unlinkMotivation(m.id)" title="Unlink">×</button>
+          </div>
+          <div v-if="m.tags && m.tags.length" class="motivation-card-tags">
+            <span
+              v-for="tag in m.tags" :key="tag.id"
+              class="tag motivation-tag"
+              :style="{ background: (tag.colour || '#888') + '15', color: tag.colour || '#888' }"
+            >{{ tag.emoji }} {{ tag.name }}</span>
           </div>
           <div v-if="getMotivationMismatch(m.id)" class="mismatch-info">
             {{ getMotivationMismatch(m.id)!.message }}
@@ -689,6 +698,8 @@ function timeAgo(dateStr: string): string {
 .motivation-card-head { display: flex; align-items: center; gap: 8px; }
 .motivation-card-title { font-size: 13px; font-weight: 500; flex: 1; }
 .motivation-card-score { font-size: 12px; font-weight: 600; color: var(--accent); }
+.motivation-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.motivation-tag { font-size: 10px; padding: 1px 7px; cursor: default; }
 
 /* External links */
 .ext-link { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }

@@ -99,7 +99,7 @@ watch(tagFilter, () => {
 });
 
 // Refresh on relevant SSE events only
-for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'milestone_updated', 'link_created', 'link_deleted']) {
+for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'milestone_updated', 'link_created', 'link_deleted', 'motivation_updated']) {
   on(evt, () => loadData());
 }
 
@@ -320,10 +320,11 @@ async function onOutcomeSaved(outcome: any) {
             <template v-if="o.tags && o.tags.length">
               <span
                 v-for="tag in o.tags" :key="tag.id"
-                class="tag card-tag"
+                :class="['tag', 'card-tag', { 'tag-inherited': tag.inherited }]"
                 :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                :title="tag.inherited ? `Inherited from a linked motivation` : tag.name"
                 @click.stop="toggleTag(tag.name)"
-              >{{ tag.emoji }} {{ tag.name }}</span>
+              >{{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span></span>
             </template>
             <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
           </div>
@@ -430,10 +431,11 @@ async function onOutcomeSaved(outcome: any) {
                 <template v-if="o.tags && o.tags.length">
                   <span
                     v-for="tag in o.tags" :key="tag.id"
-                    class="tag card-tag"
+                    :class="['tag', 'card-tag', { 'tag-inherited': tag.inherited }]"
                     :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                    :title="tag.inherited ? `Inherited from a linked motivation` : tag.name"
                     @click.stop="toggleTag(tag.name)"
-                  >{{ tag.emoji }} {{ tag.name }}</span>
+                  >{{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span></span>
                 </template>
                 <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
               </div>
