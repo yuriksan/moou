@@ -354,3 +354,82 @@ describe('Import', () => {
     expect(outcome.body.status).toBe('archived');
   });
 });
+
+describe('PPTX Export', () => {
+  it('returns a valid PPTX buffer with correct content-type', async () => {
+    await seedTestData();
+    const res = await api().get('/export/timeline/pptx')
+      .buffer(true)
+      .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    expect(res.headers['content-disposition']).toContain('roadmap-');
+    // PPTX is a ZIP file — verify magic bytes (PK\x03\x04)
+    expect(res.body[0]).toBe(0x50); // P
+    expect(res.body[1]).toBe(0x4B); // K
+    expect(res.body.length).toBeGreaterThan(1000);
+  });
+
+  it('returns a valid PPTX even with empty data', async () => {
+    // No seeding — empty database
+    const res = await api().get('/export/timeline/pptx')
+      .buffer(true)
+      .parse((r: any, cb: any) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
+
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toBe(0x50);
+    expect(res.body[1]).toBe(0x4B);
+  });
+});
+
+describe('computeExecMetrics', () => {
+  it('computes metrics from outcome and motivation data', async () => {
+    const { computeExecMetrics } = await import('../routes/export.js');
+
+    const outcomeRows = [
+      { id: '1', title: 'A', status: 'active', milestoneId: 'ms1', priorityScore: '100' },
+      { id: '2', title: 'B', status: 'completed', milestoneId: 'ms1', priorityScore: '50' },
+      { id: '3', title: 'C', status: 'draft', milestoneId: null, priorityScore: '200' },
+    ] as any[];
+
+    const motivationsByType = new Map([
+      ['Customer Demand', [
+        { score: '500', attributes: { revenue_at_risk: 100000, revenue_opportunity: 50000 } },
+        { score: '300', attributes: { revenue_at_risk: 200000 } },
+      ] as any[]],
+      ['Compliance', [
+        { score: '100', attributes: { mandate_deadline: '2099-01-01', regulation: 'GDPR', legal_exposure: 500000 } },
+      ] as any[]],
+      ['Tech Debt', [
+        { score: '80', attributes: { incident_frequency: 5 } },
+        { score: '60', attributes: { incident_frequency: 3 } },
+      ] as any[]],
+    ]);
+
+    const metrics = computeExecMetrics(outcomeRows, motivationsByType);
+
+    expect(metrics.totalRevenueAtRisk).toBe(300000);
+    expect(metrics.totalRevenueOpportunity).toBe(50000);
+    expect(metrics.totalLegalExposure).toBe(500000);
+    expect(metrics.outcomesTotal).toBe(3);
+    expect(metrics.outcomesCompleted).toBe(1);
+    expect(metrics.outcomesOnTrack).toBe(1); // only 'active' counts
+    expect(metrics.backlogCount).toBe(1); // milestoneId null
+    expect(metrics.complianceRegulation).toBe('GDPR');
+    expect(metrics.techDebtIncidentsTotal).toBe(8);
+    expect(metrics.typeScores.get('Customer Demand')).toBe(800);
+    expect(metrics.typeScores.get('Tech Debt')).toBe(140);
+  });
+
+  it('handles empty data gracefully', async () => {
+    const { computeExecMetrics } = await import('../routes/export.js');
+    const metrics = computeExecMetrics([], new Map());
+
+    expect(metrics.totalRevenueAtRisk).toBe(0);
+    expect(metrics.outcomesTotal).toBe(0);
+    expect(metrics.backlogCount).toBe(0);
+    expect(metrics.nearestComplianceDeadline).toBeNull();
+    expect(metrics.complianceDaysUntil).toBeNull();
+  });
+});
