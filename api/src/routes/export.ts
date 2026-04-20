@@ -730,6 +730,21 @@ function statusColor(status: string): string {
   return 'aaaaaa';
 }
 
+/** Group customer motivations by name and sort by total revenue at risk descending. */
+function groupCustomersByRevenue(motivations: MotivationRow[]): [string, MotivationRow[]][] {
+  const byCustomer = new Map<string, MotivationRow[]>();
+  for (const m of motivations) {
+    const name = (m.attributes.customer_name as string) || 'Unknown';
+    if (!byCustomer.has(name)) byCustomer.set(name, []);
+    byCustomer.get(name)!.push(m);
+  }
+  return [...byCustomer.entries()].sort((a, b) => {
+    const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+    const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
+    return revB - revA;
+  });
+}
+
 function addSectionDivider(pres: any, title: string, subtitle: string, bgColor: string) {
   const slide = pres.addSlide();
   slide.background = { color: bgColor };
@@ -861,11 +876,14 @@ router.get('/timeline/pptx', async (_req, res) => {
   // ─── Empty-data guard ───
   const allMotivations = [...motivationsByType.values()].flat();
   if (outcomeRows.length === 0 && allMotivations.length === 0) {
-    const slide = pres.addSlide();
-    slide.background = { color: BRAND.dark };
-    slide.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 11.7, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
-    slide.addText('No data yet — add outcomes and motivations to generate your roadmap', {
-      x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted,
+    const titleSlide2 = pres.addSlide();
+    titleSlide2.background = { color: BRAND.dark };
+    titleSlide2.addText('Product Roadmap', { x: 0.8, y: 1.5, w: 11.7, h: 1.5, fontSize: 40, fontFace: 'Arial', color: BRAND.white, bold: true });
+    titleSlide2.addText(`Generated ${dateStr}  ·  moou`, { x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted });
+    const emptySlide = pres.addSlide();
+    emptySlide.addText('No data yet', { x: 0.8, y: 2.0, w: 11.7, h: 1.0, fontSize: 32, fontFace: 'Arial', color: BRAND.dark, bold: true, align: 'center' });
+    emptySlide.addText('Add outcomes and motivations to generate your roadmap', {
+      x: 0.8, y: 3.2, w: 11.7, h: 0.5, fontSize: 14, fontFace: 'Arial', color: BRAND.muted, align: 'center',
     });
     const buffer = await pres.write({ outputType: 'nodebuffer' }) as Buffer;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
@@ -898,7 +916,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
     // Card 1: Revenue at Risk (top-left)
     const customerDemands = motivationsByType.get('Customer Demand') || [];
-    const revenuePopulated = customerDemands.filter(m => Number(m.attributes.revenue_at_risk || 0) > 0).length;
+    const revenuePopulated = customerDemands.filter(m => m.attributes.revenue_at_risk != null).length;
     const revenueCompleteness = customerDemands.length > 0 ? revenuePopulated / customerDemands.length : 0;
     let revSublabel: string;
     if (customerDemands.length === 0) {
@@ -999,19 +1017,7 @@ router.get('/timeline/pptx', async (_req, res) => {
   if (customerMotivations.length > 0) {
     addSectionDivider(pres, 'Customer Impact', 'Revenue-linked outcomes prioritised by customer impact', BRAND.customerBg);
 
-    // Group by customer name
-    const byCustomer = new Map<string, MotivationRow[]>();
-    for (const m of customerMotivations) {
-      const name = (m.attributes.customer_name as string) || 'Unknown';
-      if (!byCustomer.has(name)) byCustomer.set(name, []);
-      byCustomer.get(name)!.push(m);
-    }
-
-    const sortedCustomers = [...byCustomer.entries()].sort((a, b) => {
-      const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      return revB - revA;
-    });
+    const sortedCustomers = groupCustomersByRevenue(customerMotivations);
 
     // ─── Bar chart: Top 5 customers by revenue at risk ───
     const top5 = sortedCustomers.slice(0, 5);
@@ -1471,17 +1477,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
   // ─── All customers ───
   {
-    const byCustomer = new Map<string, MotivationRow[]>();
-    for (const m of customerMotivations) {
-      const name = (m.attributes.customer_name as string) || 'Unknown';
-      if (!byCustomer.has(name)) byCustomer.set(name, []);
-      byCustomer.get(name)!.push(m);
-    }
-    const sortedCustomers = [...byCustomer.entries()].sort((a, b) => {
-      const revA = a[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      const revB = b[1].reduce((sum, m) => sum + Number(m.attributes.revenue_at_risk || 0), 0);
-      return revB - revA;
-    });
+    const sortedCustomers = groupCustomersByRevenue(customerMotivations);
 
     for (const [customerName, mots] of sortedCustomers) {
       const slide = pres.addSlide();
