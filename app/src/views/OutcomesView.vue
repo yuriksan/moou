@@ -270,6 +270,13 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
 .outcomes-view.has-detail {
   grid-template-columns: 1fr 480px;
 }
+
+@media (min-width: 1600px) {
+  .outcomes-view.has-detail { grid-template-columns: 1fr 540px; }
+}
+@media (min-width: 1920px) {
+  .outcomes-view.has-detail { grid-template-columns: 1fr 620px; }
+}
 .side-panel {
   border-left: 1px solid var(--border);
   background: var(--bg-1);

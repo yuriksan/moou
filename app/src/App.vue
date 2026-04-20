@@ -9,6 +9,36 @@ import Toast from './components/Toast.vue';
 const router = useRouter();
 const route = useRoute();
 
+const routeTitles: Record<string, string> = {
+  timeline: 'Timeline',
+  outcomes: 'Outcomes',
+  motivations: 'Motivations',
+  'tag-admin': 'Tags',
+  'field-config-admin': 'Field Config',
+  login: 'Login',
+};
+
+const UUID_TAIL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function titleFromSlugId(slugId: unknown): string | null {
+  if (!slugId || typeof slugId !== 'string') return null;
+  // Strip the trailing UUID (and any separator hyphen) to recover the human-readable slug.
+  const slug = slugId.replace(UUID_TAIL, '').replace(/-$/, '').replace(/-/g, ' ').trim();
+  return slug || null;
+}
+
+watch(() => [route.name, route.params.slugId], ([name]) => {
+  const section = routeTitles[name as string] ?? 'moou';
+  const item = titleFromSlugId(route.params.slugId);
+  if (item) {
+    document.title = `${item} · ${section} · moou`;
+  } else if (name && name !== 'timeline') {
+    document.title = `${section} · moou`;
+  } else {
+    document.title = 'moou';
+  }
+}, { immediate: true });
+
 const showUserMenu = ref(false);
 const showWalkthrough = ref(false);
 const showAdminMenu = ref(false);

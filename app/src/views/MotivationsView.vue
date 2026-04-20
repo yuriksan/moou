@@ -240,6 +240,13 @@ function pillClass(typeName: string): string {
 .motivations-view.has-detail {
   grid-template-columns: 1fr 480px;
 }
+
+@media (min-width: 1600px) {
+  .motivations-view.has-detail { grid-template-columns: 1fr 540px; }
+}
+@media (min-width: 1920px) {
+  .motivations-view.has-detail { grid-template-columns: 1fr 620px; }
+}
 .side-panel {
   border-left: 1px solid var(--border);
   background: var(--bg-1);
@@ -315,7 +322,7 @@ function pillClass(typeName: string): string {
 .row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .row-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .row-tag { font-size: 10px; padding: 1px 7px; cursor: pointer; }
-.row-subtitle { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.row-subtitle { font-size: 11px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; max-width: 720px; line-height: 1.5; }
 .col-score { text-align: right; font-weight: 600; }
 .score-high { color: var(--accent); }
 .score-mid { color: var(--teal); }

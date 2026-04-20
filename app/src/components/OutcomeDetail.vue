@@ -6,6 +6,7 @@ import OutcomeForm from './OutcomeForm.vue';
 import MotivationForm from './MotivationForm.vue';
 import { checkOutcomeMismatches, mismatchSummary, type DateMismatch } from '../composables/useDateMismatch';
 import { formatHistory } from '../composables/useHistoryFormatter';
+import { buildSlugId } from '../composables/useSlug';
 import ConnectDialog from './ConnectDialog.vue';
 import ExternalLinkCard from './ExternalLinkCard.vue';
 import VEPublishDialog from './VEPublishDialog.vue';
@@ -419,6 +420,7 @@ function timeAgo(dateStr: string): string {
             <span :class="['motivation-pill', motivationPillClass(m.typeName)]">{{ m.typeName }}</span>
             <span class="motivation-card-title">{{ m.title }}</span>
             <span class="motivation-card-score font-mono">{{ Number(m.score).toFixed(0) }}</span>
+            <a :href="`/motivations/${buildSlugId(m.title, m.id)}`" target="_blank" rel="noopener noreferrer" class="motivation-open-link" title="Open motivation in new tab" @click.stop>&#8599;</a>
             <button class="unlink-btn" @click.stop="unlinkMotivation(m.id)" title="Unlink">×</button>
           </div>
           <div v-if="m.tags && m.tags.length" class="motivation-card-tags">
@@ -698,6 +700,8 @@ function timeAgo(dateStr: string): string {
 .motivation-card-head { display: flex; align-items: center; gap: 8px; }
 .motivation-card-title { font-size: 13px; font-weight: 500; flex: 1; }
 .motivation-card-score { font-size: 12px; font-weight: 600; color: var(--accent); }
+.motivation-open-link { font-size: 13px; color: var(--text-3); text-decoration: none; line-height: 1; flex-shrink: 0; transition: color var(--transition); }
+.motivation-open-link:hover { color: var(--accent); }
 .motivation-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .motivation-tag { font-size: 10px; padding: 1px 7px; cursor: default; }
 
