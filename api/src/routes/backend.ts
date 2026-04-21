@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { db } from '../db/index.js';
 import { externalLinks, outcomes, backendFieldConfig } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
@@ -8,6 +8,16 @@ import { recordHistory } from '../lib/history.js';
 import { broadcast } from '../sse/emitter.js';
 
 const router = Router();
+
+/** Map adapter errors to the correct HTTP status. VE 401s become 401 so the
+ * frontend can redirect to the login flow instead of showing a generic error. */
+function sendAdapterError(res: Response, err: any, fallback = 'Backend request failed'): void {
+  if (err?.message?.toLowerCase().includes('session expired')) {
+    res.status(401).json({ error: { code: 'VE_SESSION_EXPIRED', message: err.message } });
+  } else {
+    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err?.message || fallback } });
+  }
+}
 
 // GET /api/backend/search?q=term&type=issue
 // Proxies search to the configured provider adapter
@@ -37,7 +47,7 @@ router.get('/search', async (req, res) => {
     res.json({ items, provider: adapter.name, entityTypes: adapter.entityTypes });
   } catch (err: any) {
     console.error('Backend search failed:', err);
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Backend search failed' } });
+    sendAdapterError(res, err, 'Backend search failed');
   }
 });
 
@@ -91,7 +101,7 @@ router.get('/create-options', async (req, res) => {
     }
   } catch (err: any) {
     console.error('getCreateOptions failed:', err);
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message } });
+    sendAdapterError(res, err, 'Failed to get create options');
   }
 });
 
@@ -176,7 +186,7 @@ router.post('/:id/connect', async (req, res) => {
       return;
     }
     console.error('Connect failed:', err);
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to fetch item from backend' } });
+    sendAdapterError(res, err, 'Failed to fetch item from backend');
   }
 });
 
@@ -261,7 +271,7 @@ router.post('/:id/publish', async (req, res) => {
     res.status(201).json(link);
   } catch (err: any) {
     console.error('Publish failed:', err);
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to create item in backend' } });
+    sendAdapterError(res, err, 'Failed to create item in backend');
   }
 });
 
@@ -331,7 +341,7 @@ router.post('/:linkId/refresh', async (req, res) => {
     const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, req.params.linkId)).limit(1);
     res.json({ changed, link });
   } catch (err: any) {
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Refresh failed' } });
+    sendAdapterError(res, err, 'Refresh failed');
   }
 });
 

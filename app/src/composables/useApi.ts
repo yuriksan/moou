@@ -1,4 +1,5 @@
 import { toast } from './useToast';
+import router from '../router';
 
 // All API routes are under /api/. Always use relative path so requests go
 // through the Vite proxy in dev — this keeps everything same-origin so
@@ -60,6 +61,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!res.ok) {
     const message = body?.error?.message || `Request failed (${res.status})`;
+    if (res.status === 401 && !silent) {
+      // Session expired (app or VE) — send to login
+      router.push('/login');
+      throw new ApiError(res.status, message, body?.error);
+    }
     if (!silent) {
       const title = res.status === 401 ? 'Not signed in'
         : res.status === 403 ? 'Forbidden'
@@ -200,6 +206,8 @@ export const api = {
     request<{ outcome: any; pulledValue: string }>(`/outcomes/${outcomeId}/pull-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
   pushPrimary: (outcomeId: string, field: 'title' | 'description') =>
     request<{ ok: boolean }>(`/outcomes/${outcomeId}/push-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
+  syncPreview: (outcomeId: string, field: 'title' | 'description') =>
+    request<{ field: string; local: string | null; remote: string | null; inSync: boolean; providerLabel: string }>(`/outcomes/${outcomeId}/sync-preview?field=${field}`),
 
   // Export/Import
   exportTimelineUrl: () => `${BASE}/export/timeline`,

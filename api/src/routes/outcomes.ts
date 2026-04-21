@@ -309,8 +309,9 @@ router.post('/:id/external-links', async (req, res) => {
   }
 
   const provider = getProvider();
-  // 'link' is always valid as a generic URL link type
-  if (entityType !== 'link' && !isValidEntityType(entityType)) {
+  // 'link' is always valid as a generic URL link type.
+  // 'work_item' is a ValueEdge generic URL type resolved at fetch time.
+  if (entityType !== 'link' && entityType !== 'work_item' && !isValidEntityType(entityType)) {
     const validTypes = provider.entityTypes.map(t => t.name).join(', ');
     res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: `Invalid entityType "${entityType}" for provider ${provider.label}. Valid types: ${validTypes}, link` },
@@ -322,6 +323,33 @@ router.post('/:id/external-links', async (req, res) => {
     outcomeId: outcome.id, provider: provider.name, entityType, entityId, url,
     createdBy: req.user!.id,
   }).returning() as any[];
+
+  // If the entity type is the generic VE 'work_item', immediately resolve and cache it
+  // so subsequent refreshes use the correct specific type.
+  const adapter = getAdapter();
+  const token = req.accessToken;
+  if (entityType === 'work_item' && adapter && token) {
+    try {
+      const result = await adapter.getItemDetails(token, 'work_item', entityId);
+      if (result !== 'not-modified') {
+        const resolvedType = result.item.entityType;
+        const childProgress = await adapter.getChildProgress(token, resolvedType, entityId);
+        await db.update(externalLinks).set({
+          entityType: resolvedType,
+          cachedDetails: {
+            ...result.item,
+            childProgress,
+            fetchedAt: new Date().toISOString(),
+          },
+        }).where(eq(externalLinks.id, link.id));
+        link.entityType = resolvedType;
+        link.cachedDetails = result.item;
+      }
+    } catch (err) {
+      console.error('work_item resolution failed:', err);
+      // Non-fatal — link is still stored, will be refreshed later
+    }
+  }
 
   await recordHistory('external_link', link.id, 'created', {
     provider: { old: null, new: provider.name },
@@ -370,6 +398,57 @@ router.patch('/:id/primary-link', async (req, res) => {
   }, req.user!.id);
   broadcast({ type: 'outcome_updated', id: updated.id });
   res.json(updated);
+});
+
+// GET /outcomes/:id/sync-preview?field=title|description
+// Returns local vs. remote value for a field without making any changes.
+router.get('/:id/sync-preview', async (req, res) => {
+  const [outcome] = await db.select().from(outcomes).where(eq(outcomes.id, req.params.id)).limit(1);
+  if (!outcome) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Outcome not found' } });
+    return;
+  }
+  if (!outcome.primaryLinkId) {
+    res.status(400).json({ error: { code: 'NO_PRIMARY_LINK', message: 'No primary item set' } });
+    return;
+  }
+  const field = req.query.field as string;
+  if (field !== 'title' && field !== 'description') {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'field must be "title" or "description"' } });
+    return;
+  }
+
+  const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, outcome.primaryLinkId)).limit(1);
+  if (!link) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Primary link not found' } });
+    return;
+  }
+
+  // Refresh cached details if stale (older than 5 min)
+  const cached = link.cachedDetails as Record<string, unknown> | null;
+  const fetchedAt = cached?.fetchedAt as string | undefined;
+  const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime() > 5 * 60 * 1000);
+  if (isStale) {
+    const token = req.accessToken;
+    if (token) {
+      await refreshLink(link.id, token);
+      const [refreshed] = await db.select().from(externalLinks).where(eq(externalLinks.id, link.id)).limit(1);
+      if (refreshed) Object.assign(link, refreshed);
+    }
+  }
+
+  const details = link.cachedDetails as Record<string, unknown> | null;
+  const remote = (details?.[field === 'title' ? 'title' : 'description'] as string | undefined) ?? null;
+  const local = field === 'title' ? outcome.title : (outcome.description ?? null);
+  const provider = getProvider();
+
+  res.json({
+    field,
+    local,
+    remote,
+    inSync: local === remote,
+    providerLabel: provider.label,
+  });
 });
 
 // POST /outcomes/:id/pull-primary

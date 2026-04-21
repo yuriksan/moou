@@ -91,35 +91,34 @@ export class ValueEdgeAdapter implements ProviderAdapter {
   ];
 
   async searchItems(token: string, query: string, entityType?: string): Promise<BackendItem[]> {
-    const types: string[] = entityType && ENTITY_PATHS[entityType]
-      ? [entityType]
-      : ['epic', 'feature', 'story'];
+    // Use the /work_items endpoint — it covers epics, features, and stories in one call
+    // and returns `subtype` so we can correctly label each result.
+    // VQL uses semicolon as the AND operator: "name='*q*';subtype='epic'"
+    const subtypeFilter = entityType && ENTITY_PATHS[entityType]
+      ? `;subtype='${veEscape(entityType)}'`
+      : '';
+    const vql = `"name='*${veEscape(query)}*'${subtypeFilter}"`;
+    const url = `${apiBase()}/work_items?query=${encodeURIComponent(vql)}&fields=id,name,description,phase,owner,subtype&limit=20`;
 
-    const results: BackendItem[] = [];
-
-    await Promise.all(types.map(async (type) => {
-      const path = ENTITY_PATHS[type]!;
-      const fields = type === 'program' ? 'id,name' : 'id,name,description,phase,owner';
-      const q = encodeURIComponent(`"name='*${veEscape(query)}*'"`);
-      const url = `${apiBase()}/${path}?query=${q}&fields=${fields}&limit=10`;
-
-      try {
-        const res = await fetch(url, { headers: headers(token) });
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          console.error(`ValueEdge search ${type} failed: ${res.status}`, body.slice(0, 200));
-          return;
+    try {
+      const res = await fetch(url, { headers: headers(token) });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        if (res.status === 401) {
+          throw new Error('ValueEdge session expired — please sign out and sign back in');
         }
-        const data = await res.json() as { data?: any[] };
-        for (const item of data.data ?? []) {
-          results.push(mapItem(type, item));
-        }
-      } catch (err) {
-        console.error(`ValueEdge search ${type} error:`, err);
+        console.error(`ValueEdge search failed: ${res.status}`, body.slice(0, 200));
+        return [];
       }
-    }));
-
-    return results;
+      const data = await res.json() as { data?: any[] };
+      return (data.data ?? []).map((item: any) => {
+        const resolvedType = (item.subtype as string | undefined) || entityType || 'feature';
+        return mapItem(resolvedType, item);
+      });
+    } catch (err) {
+      // Re-throw session errors so the route can return 401 and trigger login
+      throw err;
+    }
   }
 
   async getItemDetails(
@@ -128,6 +127,24 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     entityId: string,
     etag?: string,
   ): Promise<{ item: BackendItem; etag?: string } | 'not-modified'> {
+    // 'work_item' is the VE generic URL entity type — call the work_items endpoint
+    // which returns a `subtype` field ('feature', 'epic', 'story', etc.) in one request.
+    if (entityType === 'work_item') {
+      const url = `${apiBase()}/work_items/${entityId}?fields=id,name,description,phase,owner,subtype`;
+      const reqHeaders: Record<string, string> = headers(token);
+      if (etag) reqHeaders['If-None-Match'] = etag;
+
+      const res = await fetch(url, { headers: reqHeaders });
+      if (res.status === 304) return 'not-modified';
+      if (res.status === 401) throw new Error('ValueEdge session expired — please sign out and sign back in');
+      if (!res.ok) throw new Error(`ValueEdge API error: ${res.status} fetching work_item ${entityId}`);
+
+      const data = await res.json();
+      const resolvedType = (data.subtype as string | undefined) || 'feature';
+      const newEtag = res.headers.get('etag') || undefined;
+      return { item: mapItem(resolvedType, data), etag: newEtag };
+    }
+
     const path = ENTITY_PATHS[entityType];
     if (!path) throw new Error(`ValueEdge: unknown entity type "${entityType}"`);
 
@@ -138,6 +155,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     const res = await fetch(url, { headers: reqHeaders });
 
     if (res.status === 304) return 'not-modified';
+    if (res.status === 401) throw new Error('ValueEdge session expired — please sign out and sign back in');
 
     if (!res.ok) {
       throw new Error(`ValueEdge API error: ${res.status} fetching ${entityType} ${entityId}`);
@@ -154,6 +172,19 @@ export class ValueEdgeAdapter implements ProviderAdapter {
       epic: 'features',
       feature: 'stories',
     };
+
+    // For unresolved work_item type, resolve via subtype first
+    if (entityType === 'work_item') {
+      try {
+        const res = await fetch(`${apiBase()}/work_items/${entityId}?fields=id,subtype`, { headers: headers(token) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const resolved = (data.subtype as string | undefined) || 'feature';
+        return this.getChildProgress(token, resolved, entityId);
+      } catch {
+        return null;
+      }
+    }
 
     const childPath = childTypes[entityType];
     if (!childPath) return null;
