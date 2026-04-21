@@ -309,7 +309,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     const res = await fetch(`${apiBase()}/${path}/${encodeURIComponent(entityId)}`, {
       method: 'PUT',
       headers: headers(token),
-      body: JSON.stringify({ data: [payload] }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
