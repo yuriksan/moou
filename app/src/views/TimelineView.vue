@@ -99,7 +99,7 @@ watch(tagFilter, () => {
 });
 
 // Refresh on relevant SSE events only
-for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'milestone_updated', 'link_created', 'link_deleted']) {
+for (const evt of ['outcome_created', 'outcome_updated', 'outcome_deleted', 'milestone_updated', 'link_created', 'link_deleted', 'motivation_updated']) {
   on(evt, () => loadData());
 }
 
@@ -195,6 +195,28 @@ const draggingOutcomeId = ref<string | null>(null);
 // or null when nothing is being hovered.
 const dragOverTargetId = ref<string | null>(null);
 
+// Template refs for the two scrollable containers
+const milestoneListRef = ref<HTMLElement | null>(null);
+const backlogCardsRef = ref<HTMLElement | null>(null);
+
+// Auto-scroll a container when the pointer is near its top or bottom edge.
+function autoScrollContainer(el: HTMLElement | null, clientY: number) {
+  if (!el) return;
+  const ZONE = 100; // px from edge that triggers scroll
+  const SPEED = 12; // px per event
+  const rect = el.getBoundingClientRect();
+  if (clientY < rect.top || clientY > rect.bottom) return;
+  const distTop = clientY - rect.top;
+  const distBot = rect.bottom - clientY;
+  if (distTop < ZONE) el.scrollTop -= SPEED * (1 - distTop / ZONE);
+  else if (distBot < ZONE) el.scrollTop += SPEED * (1 - distBot / ZONE);
+}
+
+function onGlobalDragOver(e: DragEvent) {
+  autoScrollContainer(milestoneListRef.value, e.clientY);
+  autoScrollContainer(backlogCardsRef.value, e.clientY);
+}
+
 function onDragStart(e: DragEvent, outcomeId: string) {
   draggingOutcomeId.value = outcomeId;
   if (e.dataTransfer) {
@@ -202,6 +224,7 @@ function onDragStart(e: DragEvent, outcomeId: string) {
     // Some browsers refuse to start the drag without payload data.
     e.dataTransfer.setData('text/plain', outcomeId);
   }
+  document.addEventListener('dragover', onGlobalDragOver);
 }
 
 function onDragOver(e: DragEvent, targetId: string) {
@@ -216,12 +239,14 @@ function onDrop(e: DragEvent, toMilestoneId: string | null) {
   const id = draggingOutcomeId.value;
   draggingOutcomeId.value = null;
   dragOverTargetId.value = null;
+  document.removeEventListener('dragover', onGlobalDragOver);
   if (id) moveOutcome(id, toMilestoneId);
 }
 
 function onDragEnd() {
   draggingOutcomeId.value = null;
   dragOverTargetId.value = null;
+  document.removeEventListener('dragover', onGlobalDragOver);
 }
 
 async function moveOutcome(outcomeId: string, toMilestoneId: string | null) {
@@ -305,6 +330,7 @@ async function onOutcomeSaved(outcome: any) {
       </div>
       <div
         class="backlog-cards"
+        ref="backlogCardsRef"
         :class="{ 'drop-target-active': dragOverTargetId === 'backlog' }"
         @dragover="onDragOver($event, 'backlog')"
         @drop="onDrop($event, null)"
@@ -324,10 +350,11 @@ async function onOutcomeSaved(outcome: any) {
             <template v-if="o.tags && o.tags.length">
               <span
                 v-for="tag in o.tags" :key="tag.id"
-                class="tag card-tag"
+                :class="['tag', 'card-tag', { 'tag-inherited': tag.inherited }]"
                 :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                :title="tag.inherited ? `Inherited from a linked motivation` : tag.name"
                 @click.stop="toggleTag(tag.name)"
-              >{{ tag.emoji }} {{ tag.name }}</span>
+              >{{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span></span>
             </template>
             <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
           </div>
@@ -383,7 +410,7 @@ async function onOutcomeSaved(outcome: any) {
       </div>
 
       <!-- Milestone sections -->
-      <div class="milestone-list">
+      <div class="milestone-list" ref="milestoneListRef">
         <section v-for="ms in sortedMilestones" :key="ms.id" class="milestone-section">
           <!-- Edit mode -->
           <div v-if="editingMilestoneId === ms.id" class="milestone-edit-form">
@@ -435,10 +462,11 @@ async function onOutcomeSaved(outcome: any) {
                 <template v-if="o.tags && o.tags.length">
                   <span
                     v-for="tag in o.tags" :key="tag.id"
-                    class="tag card-tag"
+                    :class="['tag', 'card-tag', { 'tag-inherited': tag.inherited }]"
                     :style="{ background: (tag.colour || '#888888') + '15', color: tag.colour || '#888888' }"
+                    :title="tag.inherited ? `Inherited from a linked motivation` : tag.name"
                     @click.stop="toggleTag(tag.name)"
-                  >{{ tag.emoji }} {{ tag.name }}</span>
+                  >{{ tag.emoji }} {{ tag.name }}<span v-if="tag.inherited" class="tag-inherited-icon" aria-label="inherited">↑</span></span>
                 </template>
                 <a v-if="o.primaryLinkUrl" :href="o.primaryLinkUrl" target="_blank" rel="noopener noreferrer" class="card-primary-link" title="Open primary issue" @click.stop>↗</a>
               </div>
@@ -492,6 +520,15 @@ async function onOutcomeSaved(outcome: any) {
 }
 .timeline.has-detail {
   grid-template-columns: 240px 1fr 480px;
+}
+
+@media (min-width: 1600px) {
+  .timeline { grid-template-columns: 300px 1fr; }
+  .timeline.has-detail { grid-template-columns: 300px 1fr 540px; }
+}
+@media (min-width: 1920px) {
+  .timeline { grid-template-columns: 360px 1fr; }
+  .timeline.has-detail { grid-template-columns: 360px 1fr 620px; }
 }
 
 .header-buttons { display: flex; gap: 6px; align-items: center; }

@@ -1,0 +1,1 @@
+ALTER TABLE "motivation_types" ADD COLUMN IF NOT EXISTS "scoring_description" text;

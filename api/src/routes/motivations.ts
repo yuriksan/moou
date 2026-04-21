@@ -5,7 +5,7 @@ import {
   motivations, motivationTypes, motivationTags, tags,
   outcomeMotivations, outcomes, milestones,
 } from '../db/schema.js';
-import { eq, sql, and, inArray, desc } from 'drizzle-orm';
+import { eq, sql, and, inArray, desc, ilike } from 'drizzle-orm';
 import { validateAttributes } from '../lib/validate.js';
 import { recordCreate, recordUpdate, recordHistory, recordLink, recordUnlink } from '../lib/history.js';
 import { recalculateMotivation, recalculateOutcome, recalculateLinkedOutcomes } from '../scoring/recalculate.js';
@@ -86,6 +86,10 @@ router.get('/', async (req, res) => {
     conditions.push(eq(motivations.status, req.query.status as string));
   }
 
+  if (req.query.search) {
+    conditions.push(ilike(motivations.title, `%${req.query.search}%`));
+  }
+
   if (req.query.tags) {
     const tagNames = (req.query.tags as string).split(',').map(t => t.toLowerCase());
     const tagRows = await db.select({ id: tags.id }).from(tags)
@@ -113,6 +117,7 @@ router.get('/', async (req, res) => {
     id: motivations.id,
     typeId: motivations.typeId,
     typeName: motivationTypes.name,
+    scoringDescription: motivationTypes.scoringDescription,
     title: motivations.title,
     status: motivations.status,
     notes: motivations.notes,
@@ -153,6 +158,8 @@ router.get('/:id', async (req, res) => {
     id: motivations.id,
     typeId: motivations.typeId,
     typeName: motivationTypes.name,
+    scoringFormula: motivationTypes.scoringFormula,
+    scoringDescription: motivationTypes.scoringDescription,
     title: motivations.title,
     status: motivations.status,
     notes: motivations.notes,

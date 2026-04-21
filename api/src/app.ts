@@ -21,7 +21,7 @@ import backendRouter from './routes/backend.js';
 import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
 import { getSession } from './auth/session.js';
-import githubAuthRouter from './auth/github.js';
+import githubAuthRouter, { getAllowedOrigins } from './auth/github.js';
 import valueedgeAuthRouter from './auth/valueedge.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -40,7 +40,7 @@ function isTestEnv(): boolean {
 
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 100,                           // 100 requests per minute per IP
+  limit: 1000,                          // 1000 requests per minute per IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTestEnv(),
@@ -92,7 +92,7 @@ app.use(helmet({
 app.use('/api/import/timeline/diff', express.raw({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cors({
-  origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173'],
+  origin: getAllowedOrigins(),
   credentials: true,
 }));
 

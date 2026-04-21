@@ -15,6 +15,13 @@
       "when": 1776349421000,
       "tag": "0001_motivation_target_date",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776450667445,
+      "tag": "0002_bitter_tana_nile",
+      "breakpoints": true
     }
   ]
 }
