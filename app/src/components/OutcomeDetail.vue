@@ -199,8 +199,14 @@ async function onMotivationSaved() {
   await load();
 }
 
-function parseUrl(url: string): { entityType: string; entityId: string } {
+function parseUrl(url: string): { entityType: string | null; entityId: string } {
   // Try to extract entity type and ID from common URL patterns
+  // ValueEdge: entity-navigation URLs — type is resolved server-side
+  const veQuery = url.match(/[?&]id=(\d+)/);
+  const veHash = url.match(/entity:(\d+)\/(epic|feature|story)/);
+  if (veHash) return { entityType: veHash[2]!, entityId: veHash[1]! };
+  if (veQuery && url.includes('entity-navigation')) return { entityType: null, entityId: veQuery[1]! };
+
   // GitHub: /issues/123, /pull/456
   const ghIssue = url.match(/\/issues\/(\d+)/);
   if (ghIssue) return { entityType: 'issue', entityId: ghIssue[1]! };
@@ -220,12 +226,7 @@ async function addExternalLink() {
   const url = newLinkUrl.value.trim();
   if (!url) return;
   const { entityType, entityId } = parseUrl(url);
-  try {
-    await api.createExternalLink(props.outcomeId, { entityType, entityId, url });
-  } catch {
-    // If entity type is not valid for provider, retry with 'link'
-    await api.createExternalLink(props.outcomeId, { entityType: 'link', entityId, url });
-  }
+  await api.createExternalLink(props.outcomeId, { entityType, entityId, url });
   newLinkUrl.value = '';
   showAddLink.value = false;
   emit('updated');

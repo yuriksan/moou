@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { externalLinks, outcomes, backendFieldConfig } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { getAdapter } from '../providers/adapter.js';
+import { getAdapter } from '../providers/registry.js';
+import { ProviderAuthError } from '../providers/adapter.js';
 import { refreshLink } from '../providers/refresh.js';
 import { recordHistory } from '../lib/history.js';
 import { broadcast } from '../sse/emitter.js';
@@ -37,7 +38,8 @@ router.get('/search', async (req, res) => {
     res.json({ items, provider: adapter.name, entityTypes: adapter.entityTypes });
   } catch (err: any) {
     console.error('Backend search failed:', err);
-    res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Backend search failed' } });
+    const isAuthError = err instanceof ProviderAuthError;
+    res.status(isAuthError ? 401 : 502).json({ error: { code: isAuthError ? 'UNAUTHORIZED' : 'BACKEND_ERROR', message: err.message || 'Backend search failed' } });
   }
 });
 
@@ -91,6 +93,7 @@ router.get('/create-options', async (req, res) => {
     }
   } catch (err: any) {
     console.error('getCreateOptions failed:', err);
+    if (err instanceof ProviderAuthError) { res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } }); return; }
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message } });
   }
 });
@@ -171,6 +174,7 @@ router.post('/:id/connect', async (req, res) => {
     broadcast({ type: 'external_link_created', id: link.id, outcomeId: outcome.id });
     res.status(201).json(link);
   } catch (err: any) {
+    if (err instanceof ProviderAuthError) { res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } }); return; }
     if (err.message?.includes('404') || err.message?.includes('not found')) {
       res.status(400).json({ error: { code: 'NOT_FOUND', message: `${entityType} #${entityId} not found in ${adapter.label}` } });
       return;
@@ -261,6 +265,7 @@ router.post('/:id/publish', async (req, res) => {
     res.status(201).json(link);
   } catch (err: any) {
     console.error('Publish failed:', err);
+    if (err instanceof ProviderAuthError) { res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } }); return; }
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to create item in backend' } });
   }
 });
@@ -331,6 +336,7 @@ router.post('/:linkId/refresh', async (req, res) => {
     const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, req.params.linkId)).limit(1);
     res.json({ changed, link });
   } catch (err: any) {
+    if (err instanceof ProviderAuthError) { res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } }); return; }
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Refresh failed' } });
   }
 });

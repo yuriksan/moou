@@ -10,7 +10,8 @@ import { flatDiff } from '../lib/diff.js';
 import { broadcast } from '../sse/emitter.js';
 import { getProvider, isValidEntityType } from '../providers.js';
 import { validateOutcomeInput } from '../lib/input-validation.js';
-import { getAdapter } from '../providers/adapter.js';
+import { getAdapter } from '../providers/registry.js';
+import { ProviderAuthError } from '../providers/adapter.js';
 import { refreshLink } from '../providers/refresh.js';
 
 const router = Router();
@@ -303,14 +304,41 @@ router.post('/:id/external-links', async (req, res) => {
     return;
   }
 
-  const { entityType, entityId, url } = req.body;
-  if (!entityType || !entityId) {
-    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'entityType and entityId are required' } });
+  const { entityType: rawEntityType, entityId, url } = req.body;
+  if (!entityId) {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'entityId is required' } });
     return;
   }
 
   const provider = getProvider();
-  // 'link' is always valid as a generic URL link type
+  const adapter = getAdapter();
+
+  // If entityType is null/missing, try to resolve it from the provider
+  let entityType = rawEntityType as string | null;
+  let cachedDetails: Record<string, unknown> | null = null;
+
+  if (!entityType && adapter && req.accessToken) {
+    try {
+      // Use work_item (generic) lookup — adapter resolves the real subtype
+      const result = await adapter.getItemDetails(req.accessToken, 'work_item', entityId);
+      if (result !== 'not-modified' && result.item) {
+        entityType = result.item.entityType;
+        const childProgress = await adapter.getChildProgress(req.accessToken, result.item.entityType, entityId);
+        cachedDetails = { ...result.item, childProgress, etag: result.etag, fetchedAt: new Date().toISOString() };
+      }
+    } catch (err) {
+      if (err instanceof ProviderAuthError) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } });
+        return;
+      }
+      // Resolution failed — fall through to 'link' type
+    }
+  }
+
+  // Default to 'link' if still unresolved
+  if (!entityType) entityType = 'link';
+
+  // Validate the resolved type
   if (entityType !== 'link' && !isValidEntityType(entityType)) {
     const validTypes = provider.entityTypes.map(t => t.name).join(', ');
     res.status(400).json({
@@ -322,6 +350,7 @@ router.post('/:id/external-links', async (req, res) => {
   const [link] = await db.insert(externalLinks).values({
     outcomeId: outcome.id, provider: provider.name, entityType, entityId, url,
     createdBy: req.user!.id,
+    ...(cachedDetails ? { cachedDetails } : {}),
   }).returning() as any[];
 
   await recordHistory('external_link', link.id, 'created', {
@@ -330,6 +359,14 @@ router.post('/:id/external-links', async (req, res) => {
     entityId: { old: null, new: entityId },
     outcomeId: { old: null, new: outcome.id },
   }, req.user!.id);
+
+  // If we didn't resolve details above (e.g. known type sent by Connect dialog),
+  // fire-and-forget refresh to populate cached details.
+  if (!cachedDetails && entityType !== 'link' && req.accessToken) {
+    refreshLink(link.id, req.accessToken).catch((err) => {
+      if (err instanceof ProviderAuthError) broadcast({ type: 'session_expired' });
+    });
+  }
 
   broadcast({ type: 'external_link_created', id: link.id, outcomeId: outcome.id });
   res.status(201).json(link);
@@ -405,7 +442,16 @@ router.post('/:id/pull-primary', async (req, res) => {
   const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime() > 5 * 60 * 1000);
   if (isStale) {
     const token = req.accessToken;
-    if (token) await refreshLink(link.id, token);
+    if (token) {
+      try {
+        await refreshLink(link.id, token);
+      } catch (err) {
+        if (err instanceof ProviderAuthError) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: (err as Error).message } });
+          return;
+        }
+      }
+    }
     // Re-fetch updated link
     const [refreshed] = await db.select().from(externalLinks).where(eq(externalLinks.id, link.id)).limit(1);
     if (refreshed) Object.assign(link, refreshed);
@@ -486,6 +532,7 @@ router.post('/:id/push-primary', async (req, res) => {
     await adapter.updateItem(token, link.entityType, link.entityId, changes);
   } catch (err: any) {
     console.error('push-primary updateItem failed:', err);
+    if (err instanceof ProviderAuthError) { res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } }); return; }
     res.status(502).json({ error: { code: 'BACKEND_ERROR', message: err.message || 'Failed to update backend item' } });
     return;
   }

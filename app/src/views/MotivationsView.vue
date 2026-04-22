@@ -25,6 +25,7 @@ const typeFilter = usePersistedRef<string>('motivations.typeFilter', '', (route.
 const statusFilter = usePersistedRef<string>('motivations.statusFilter', 'active');
 const tagFilter = usePersistedRef<string[]>('motivations.tagFilter', [], route.query.tags ? (route.query.tags as string).split(',') : null);
 const sortBy = usePersistedRef<string>('motivations.sortBy', 'score');
+const search = usePersistedRef<string>('motivations.search', '', (route.query.q as string) || null);
 
 // Tags actually applied to motivations — hides tags only used on outcomes
 // so the filter bar never offers a "click here for zero results" option.
@@ -61,11 +62,12 @@ for (const evt of ['motivation_created', 'motivation_updated', 'motivation_delet
   on(evt, () => loadMotivations());
 }
 // Sync filters and selection to URL. Filters → query, selection → path.
-watch([typeFilter, statusFilter, tagFilter, selectedMotivationId], () => {
+watch([typeFilter, statusFilter, tagFilter, search, selectedMotivationId], () => {
   const query: Record<string, string> = {};
   if (typeFilter.value) query.type = typeFilter.value;
   if (statusFilter.value) query.status = statusFilter.value;
   if (tagFilter.value.length) query.tags = tagFilter.value.join(',');
+  if (search.value) query.q = search.value;
 
   let path = '/motivations';
   if (selectedMotivationId.value) {
@@ -104,7 +106,13 @@ watch(motivations, () => {
 });
 
 const sortedMotivations = computed(() => {
-  const data = [...motivations.value];
+  let data = [...motivations.value];
+  if (search.value.trim()) {
+    const q = search.value.toLowerCase();
+    data = data.filter(m =>
+      m.title.toLowerCase().includes(q) || m.notes?.toLowerCase().includes(q)
+    );
+  }
   if (sortBy.value === 'score') data.sort((a, b) => Number(b.score) - Number(a.score));
   else if (sortBy.value === 'outcomes') data.sort((a, b) => b.linkedOutcomeCount - a.linkedOutcomeCount);
   else if (sortBy.value === 'date') data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -153,7 +161,8 @@ function pillClass(typeName: string): string {
         <button :class="['filter-btn', { active: sortBy === 'score' }]" @click="sortBy = 'score'">Score</button>
         <button :class="['filter-btn', { active: sortBy === 'outcomes' }]" @click="sortBy = 'outcomes'">Outcomes</button>
         <button :class="['filter-btn', { active: sortBy === 'date' }]" @click="sortBy = 'date'">Date</button>
-        <button class="btn btn-sm btn-primary" style="margin-left:auto" @click="showNewMotivation = true; selectedMotivationId = null">+ Motivation</button>
+        <input v-model="search" placeholder="Search..." class="search-input" />
+        <button class="btn btn-sm btn-primary" @click="showNewMotivation = true; selectedMotivationId = null">+ Motivation</button>
       </div>
 
       <!-- Tag filter (only tags actually applied to motivations) -->
@@ -337,4 +346,17 @@ function pillClass(typeName: string): string {
 .mismatch-dot-critical { background: var(--red); }
 .mismatch-dot-warning { background: var(--accent); }
 .empty { padding: 40px; text-align: center; color: var(--text-3); font-size: 14px; }
+.search-input {
+  margin-left: auto;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+  color: var(--text-0);
+  width: 180px;
+  outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
 </style>

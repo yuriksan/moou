@@ -2,12 +2,21 @@
 import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api } from './composables/useApi';
+import { useSSE } from './composables/useSSE';
+import { toast } from './composables/useToast';
 import Walkthrough from './components/Walkthrough.vue';
 import SearchBar from './components/SearchBar.vue';
 import Toast from './components/Toast.vue';
 
 const router = useRouter();
 const route = useRoute();
+
+// Redirect to login whenever the provider signals the session has expired
+const { on } = useSSE();
+on('session_expired', () => {
+  toast.error('Your session has expired. Please sign in again.', { title: 'Session expired' });
+  router.push('/login');
+});
 
 const routeTitles: Record<string, string> = {
   timeline: 'Timeline',

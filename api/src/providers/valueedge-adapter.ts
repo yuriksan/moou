@@ -1,4 +1,13 @@
 import type { ProviderAdapter, BackendItem, ChildProgress, ProviderEntityType, CreateField, CreateOptions } from './adapter.js';
+import { ProviderAuthError } from './adapter.js';
+
+/** VE-specific auth error — thrown whenever VE returns 401/403. */
+class VEAuthError extends ProviderAuthError {
+  constructor(status: number) {
+    super(`ValueEdge authentication failed (${status}). Please sign in again.`);
+    this.name = 'VEAuthError';
+  }
+}
 
 const BASE_URL = (process.env.VALUEEDGE_BASE_URL || 'https://ot-internal.saas.microfocus.com').replace(/\/$/, '');
 const SHARED_SPACE = process.env.VALUEEDGE_SHARED_SPACE || '4001';
@@ -26,7 +35,9 @@ function veEscape(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-type VEEntityType = 'epics' | 'features' | 'stories' | 'programs';
+type VEEntityType = 'epics' | 'features' | 'stories' | 'programs' | 'work_items';
+
+const WORK_ITEMS_PATH = 'work_items';
 
 const ENTITY_PATHS: Record<string, VEEntityType> = {
   epic: 'epics',
@@ -65,10 +76,12 @@ function deriveState(item: any): string {
   return phaseName.toLowerCase() || 'unknown';
 }
 
-/** Map a raw ValueEdge entity (epic/feature/story) to a BackendItem */
+/** Map a raw ValueEdge entity (epic/feature/story/work_item) to a BackendItem */
 function mapItem(entityType: string, data: any): BackendItem {
+  // work_items endpoint returns a subtype field with the real type (epic/feature/story)
+  const resolvedType = entityType === 'work_item' ? (data.subtype || 'epic') : entityType;
   return {
-    entityType,
+    entityType: resolvedType,
     entityId: String(data.id),
     title: data.name || '',
     description: data.description || undefined,
@@ -106,6 +119,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
 
       try {
         const res = await fetch(url, { headers: headers(token) });
+        if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           console.error(`ValueEdge search ${type} failed: ${res.status}`, body.slice(0, 200));
@@ -116,6 +130,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
           results.push(mapItem(type, item));
         }
       } catch (err) {
+        if (err instanceof VEAuthError) throw err; // propagate auth errors
         console.error(`ValueEdge search ${type} error:`, err);
       }
     }));
@@ -125,28 +140,29 @@ export class ValueEdgeAdapter implements ProviderAdapter {
 
   async getItemDetails(
     token: string,
-    entityType: string,
+    _entityType: string,
     entityId: string,
     etag?: string,
   ): Promise<{ item: BackendItem; etag?: string } | 'not-modified'> {
-    const path = ENTITY_PATHS[entityType];
-    if (!path) throw new Error(`ValueEdge: unknown entity type "${entityType}"`);
-
-    const url = `${apiBase()}/${path}/${entityId}?fields=id,name,description,phase,owner,parent`;
+    // Always use the generic work_items endpoint — it returns subtype so we don't
+    // need to know the specific type upfront. mapItem resolves subtype → entityType.
+    const url = `${apiBase()}/${WORK_ITEMS_PATH}/${entityId}?fields=id,name,description,phase,owner,parent,subtype`;
     const reqHeaders: Record<string, string> = headers(token);
     if (etag) reqHeaders['If-None-Match'] = etag;
 
     const res = await fetch(url, { headers: reqHeaders });
 
     if (res.status === 304) return 'not-modified';
+    if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
 
     if (!res.ok) {
-      throw new Error(`ValueEdge API error: ${res.status} fetching ${entityType} ${entityId}`);
+      throw new Error(`ValueEdge API error: ${res.status} fetching work_item ${entityId}`);
     }
 
     const data = await res.json();
     const newEtag = res.headers.get('etag') || undefined;
-    return { item: mapItem(entityType, data), etag: newEtag };
+    // mapItem uses data.subtype as the resolved entityType
+    return { item: mapItem('work_item', data), etag: newEtag };
   }
 
   async getChildProgress(token: string, entityType: string, entityId: string): Promise<ChildProgress | null> {
@@ -253,6 +269,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     });
 
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
       const err = await res.json().catch(() => ({})) as any;
       const msg = err.description_translated || err.description || err.technical_error || 'failed to create item';
       throw new Error(`ValueEdge API error: ${res.status} — ${msg}`);
@@ -283,6 +300,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     });
 
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
       const err = await res.json().catch(() => ({})) as any;
       const msg = err.description_translated || err.description || err.technical_error || 'failed to update item';
       throw new Error(`ValueEdge API error: ${res.status} — ${msg}`);

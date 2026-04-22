@@ -3,6 +3,17 @@
  * integrations implement. Routes call this interface, never provider-specific code.
  */
 
+/**
+ * Thrown by any provider adapter when the access token is expired or invalid.
+ * Routes catch this and return 401; SSE broadcast triggers client re-login.
+ */
+export class ProviderAuthError extends Error {
+  constructor(message = 'Provider authentication failed. Please sign in again.') {
+    super(message);
+    this.name = 'ProviderAuthError';
+  }
+}
+
 export interface BackendItem {
   entityType: string;
   entityId: string;
@@ -98,21 +109,3 @@ export interface CreateOptions {
   fields: CreateField[];
 }
 
-// ─── Registry ───
-
-import { GitHubAdapter } from './github-adapter.js';
-import { ValueEdgeAdapter } from './valueedge-adapter.js';
-
-const adapters: Record<string, ProviderAdapter> = {
-  github: new GitHubAdapter(),
-  valueedge: new ValueEdgeAdapter(),
-};
-
-/**
- * Get the provider adapter for the current deployment.
- * Returns null if the configured provider has no adapter (e.g. mock mode, valueedge without adapter yet).
- */
-export function getAdapter(): ProviderAdapter | null {
-  const provider = process.env.EXTERNAL_PROVIDER || 'valueedge';
-  return adapters[provider] || null;
-}

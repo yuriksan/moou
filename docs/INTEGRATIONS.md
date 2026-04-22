@@ -62,7 +62,7 @@ The shared types — `BackendItem`, `ChildProgress`, `ProviderEntityType` — ar
 
 **`entityTypes`** — what kinds of items the provider exposes. GitHub returns `[issue, pr]`. ValueEdge returns `[epic, feature, story]`. Mark exactly one with `default: true` so the publish flow knows which to default the picker to. Types that can't be created from a title + description alone (GitHub PRs need head/base branches; ValueEdge sometimes restricts story creation by workspace) should still appear in `entityTypes` so they show up in connect search results, but they should throw from `createItem` so the publish route surfaces a `502 BACKEND_ERROR`.
 
-**`searchItems(token, query, entityType?)`** — return up to ~20 items matching the user's query. The frontend already debounces input. Filter by `entityType` when provided. Quietly return `[]` on a backend error rather than throwing — search failures shouldn't cascade into a broken UI. Use `console.error` for diagnostics.
+**`searchItems(token, query, entityType?)`** — return up to ~20 items matching the user's query. The frontend already debounces input. Filter by `entityType` when provided. Throw a `ProviderAuthError` (see below) on 401/403 responses — auth failures must surface to the user, not silently return empty results. For other backend errors, log with `console.error` and return `[]` so search failures don't cascade into a broken UI.
 
 **`getItemDetails(token, type, id, etag?)`** — fetch one item. If `etag` is provided, send it as `If-None-Match`. Return the literal string `'not-modified'` for a 304 response. Otherwise return `{ item, etag }` where `etag` is whatever the backend returned in the `ETag` header (or `undefined` if it didn't). The refresh job depends on this for rate-limit-friendly polling.
 
@@ -270,3 +270,43 @@ For any new adapter:
 **Stable entity ids.** Whatever you put in `BackendItem.entityId` is what gets stored in `external_links.entity_id` and used to fetch the item later. It must be stable for the lifetime of the link. For GitHub that's the issue number (per repo). For Linear that's the identifier (`MOOU-42`). Don't use database row ids that could change between API versions.
 
 **No frontend changes needed.** The frontend talks to `/api/backend/*` and `/api/outcomes/:id/{connect,publish}` exclusively. Adding a new adapter is a backend-only change as long as you reuse the existing entity-type model.
+
+## Auth error propagation
+
+Expired or invalid tokens must be surfaced to the user — not silently swallowed. The pattern is:
+
+### 1. Define a private subclass in your adapter
+
+`ProviderAuthError` is defined in `adapter.ts` as a provider-agnostic base class. In your adapter, define a private subclass and throw it on any 401 or 403 response:
+
+```typescript
+import { ProviderAuthError } from './adapter.js';
+
+// private — not exported; the rest of the codebase only sees ProviderAuthError
+class MyProviderAuthError extends ProviderAuthError {}
+
+// inside searchItems / getItemDetails / createItem / updateItem:
+if (res.status === 401 || res.status === 403) {
+  throw new MyProviderAuthError();
+}
+```
+
+Using a private subclass means internal `catch (err)` blocks in the adapter can re-throw this error specifically, while shared infrastructure only needs to `instanceof ProviderAuthError`.
+
+### 2. Propagation chain
+
+| Layer | Behaviour |
+|---|---|
+| Adapter method | Throws `ProviderAuthError` (or subclass) on 401/403 |
+| `refresh.ts` `refreshLink()` | Re-throws `ProviderAuthError`; swallows other errors |
+| Express routes (`backend.ts`, `outcomes.ts`) | `catch (err) { if (err instanceof ProviderAuthError) return res.status(401).json(...)` |
+| Fire-and-forget refresh (e.g. post-insert) | Can't return HTTP 401; broadcasts `{ type: 'session_expired' }` SSE instead |
+| `App.vue` | Listens for `session_expired` SSE → shows toast → redirects to `/login` |
+| `useApi.ts` | Any 401 from the moou API → shows toast → redirects to `/login` |
+
+### 3. Rules
+
+- **Never catch `ProviderAuthError` and return `[]` or `null`.** That's a silent failure and leaves the user confused about why their data is missing.
+- **Don't export your provider-specific subclass.** Shared infrastructure imports only `ProviderAuthError` from `adapter.ts`. Provider details stay inside the adapter file.
+- **Distinguish auth errors from other errors.** A 404 (item deleted), 429 (rate limit), or 5xx (backend down) should _not_ throw `ProviderAuthError` — those have different user-facing meanings.
+- **`searchItems` is not exempt.** Silent `[]` returns on 401 look like "no results" to the user. Throw `ProviderAuthError` there too so the route layer can return 401 to the frontend.

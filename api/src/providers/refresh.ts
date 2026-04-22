@@ -1,7 +1,8 @@
 import { db } from '../db/index.js';
 import { externalLinks } from '../db/schema.js';
 import { eq, sql, and, isNotNull } from 'drizzle-orm';
-import { getAdapter } from './adapter.js';
+import { getAdapter } from './registry.js';
+import { ProviderAuthError } from './adapter.js';
 import { getSession } from '../auth/session.js';
 
 /**
@@ -30,9 +31,15 @@ export async function refreshLink(linkId: string, token: string): Promise<boolea
     }
 
     // Fetch child progress if available
-    const childProgress = await adapter.getChildProgress(token, link.entityType, link.entityId);
+    const childProgress = await adapter.getChildProgress(token, result.item.entityType, link.entityId);
+
+    // If the adapter resolved a more specific entity type (e.g. work_item → epic), persist it
+    const resolvedEntityType = result.item.entityType !== link.entityType
+      ? result.item.entityType
+      : undefined;
 
     await db.update(externalLinks).set({
+      ...(resolvedEntityType ? { entityType: resolvedEntityType } : {}),
       cachedDetails: {
         ...result.item,
         childProgress,
@@ -43,6 +50,7 @@ export async function refreshLink(linkId: string, token: string): Promise<boolea
 
     return true; // changed
   } catch (err) {
+    if (err instanceof ProviderAuthError) throw err; // callers must handle auth errors
     console.error(`Failed to refresh link ${linkId}:`, err);
     return false;
   }

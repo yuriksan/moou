@@ -61,11 +61,16 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!res.ok) {
     const message = body?.error?.message || `Request failed (${res.status})`;
     if (!silent) {
-      const title = res.status === 401 ? 'Not signed in'
-        : res.status === 403 ? 'Forbidden'
-        : res.status >= 500 ? 'Server error'
-        : 'Request failed';
-      toast.error(message, { title });
+      if (res.status === 401) {
+        // Session expired or VE token expired — redirect to login
+        toast.error(message || 'Your session has expired. Please sign in again.', { title: 'Session expired' });
+        window.location.href = '/login';
+      } else {
+        const title = res.status === 403 ? 'Forbidden'
+          : res.status >= 500 ? 'Server error'
+          : 'Request failed';
+        toast.error(message, { title });
+      }
     }
     throw new ApiError(res.status, message, body?.error);
   }

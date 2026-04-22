@@ -61,5 +61,6 @@ export function getProvider(): ProviderConfig {
  */
 export function isValidEntityType(entityType: string): boolean {
   const provider = getProvider();
+  // include hidden types (e.g. 'work_item') — they're valid for storage even if not shown in UI
   return provider.entityTypes.some(t => t.name === entityType);
 }

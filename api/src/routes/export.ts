@@ -7,7 +7,7 @@ import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES, safeSheetName } from '../lib/input-validation.js';
-import { getAdapter } from '../providers/adapter.js';
+import { getAdapter } from '../providers/registry.js';
 
 const router = Router();
 
