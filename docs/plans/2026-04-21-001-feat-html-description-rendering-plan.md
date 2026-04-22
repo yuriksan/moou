@@ -90,8 +90,8 @@ Update pull handler (`POST /outcomes/:id/pull-primary`, ~line 501):
 - When pulling description, also set `descriptionFormat` to `adapter.descriptionFormat`
 - When pulling from a link for the first time (connect/publish), set format
 
-Update publish handler (`POST /outcomes/:id/publish`, ~line 235):
-- After creating and caching, set `descriptionFormat` to `adapter.descriptionFormat`
+Publish handler (`POST /outcomes/:id/publish`):
+- Does NOT change `descriptionFormat` — the outcome's existing description is plain text that gets sent as-is. Format only changes when content is pulled FROM the backend.
 
 **File: `api/src/routes/outcomes.ts`**
 

@@ -429,9 +429,13 @@ router.post('/:id/pull-primary', async (req, res) => {
     .where(eq(outcomes.id, req.params.id))
     .returning() as any[];
 
-  await recordHistory('outcome', updated.id, 'updated', {
+  const changes: Record<string, { old: unknown; new: unknown }> = {
     [field]: { old: field === 'title' ? outcome.title : outcome.description, new: pulledValue },
-  }, req.user!.id);
+  };
+  if (field === 'description') {
+    changes.descriptionFormat = { old: outcome.descriptionFormat, new: adapter?.descriptionFormat ?? 'plain' };
+  }
+  await recordHistory('outcome', updated.id, 'updated', changes, req.user!.id);
   broadcast({ type: 'outcome_updated', id: updated.id });
   res.json({ outcome: updated, pulledValue });
 });
