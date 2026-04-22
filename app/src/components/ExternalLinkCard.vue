@@ -94,7 +94,7 @@ watch(() => props.isPrimary, () => {
         </div>
       </div>
 
-      <a :href="details!.htmlUrl as string" target="_blank" class="link-title">{{ details!.title }}</a>
+      <a :href="props.link.url as string" target="_blank" class="link-title">{{ details!.title }}</a>
 
       <div class="link-meta">
         <span v-for="label in (details!.labels as any[] || []).slice(0, 4)" :key="label.name"

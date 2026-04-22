@@ -8,8 +8,8 @@ function apiBase(): string {
   return `${BASE_URL}/api/shared_spaces/${SHARED_SPACE}/workspaces/${WORKSPACE}`;
 }
 
-function itemUrl(entityType: string, id: string): string {
-  return `${BASE_URL}/ui/?p=${SHARED_SPACE}/${WORKSPACE}#entity-navigation/entity:${id}/${entityType}`;
+function itemUrl(_entityType: string, id: string): string {
+  return `${BASE_URL}/ui/entity-navigation?p=${SHARED_SPACE}/${WORKSPACE}&entityType=work_item&id=${id}`;
 }
 
 /** Build fetch headers — ValueEdge uses the LWSSO_COOKIE_KEY as a cookie */
@@ -77,7 +77,7 @@ function mapItem(entityType: string, data: any): BackendItem {
     assignee: data.owner
       ? { login: data.owner.full_name || data.owner.name || data.owner.id }
       : undefined,
-    htmlUrl: itemUrl(entityType, String(data.id)),
+    htmlUrl: '',
   };
 }
 
