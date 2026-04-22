@@ -419,7 +419,9 @@ router.post('/:id/pull-primary', async (req, res) => {
     return;
   }
 
-  const updateField = field === 'title' ? { title: pulledValue } : { description: pulledValue };
+  const updateField: Record<string, unknown> = field === 'title'
+    ? { title: pulledValue }
+    : { description: pulledValue, descriptionFormat: adapter?.descriptionFormat ?? 'plain' };
   const [updated] = await db.update(outcomes)
     .set({ ...updateField, updatedAt: new Date() })
     .where(eq(outcomes.id, req.params.id))

@@ -13,6 +13,7 @@ vi.mock('../providers/adapter.js', () => ({
   getAdapter: () => ({
     name: 'github',
     label: 'GitHub',
+    descriptionFormat: 'markdown',
     entityTypes: [
       { name: 'issue', label: 'Issue', default: true },
       { name: 'pr', label: 'Pull Request' },

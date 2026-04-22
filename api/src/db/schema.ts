@@ -65,6 +65,7 @@ export const outcomes = pgTable('outcomes', {
   id: uuid('id').defaultRandom().primaryKey(),
   title: text('title').notNull(),
   description: text('description'),
+  descriptionFormat: text('description_format').notNull().default('plain'),
   effort: text('effort'),
   milestoneId: uuid('milestone_id').references(() => milestones.id, { onDelete: 'set null' }),
   status: text('status').notNull().default('draft'),

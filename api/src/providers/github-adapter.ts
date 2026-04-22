@@ -40,6 +40,7 @@ function mapIssue(data: any): BackendItem {
 export class GitHubAdapter implements ProviderAdapter {
   name = 'github';
   label = 'GitHub';
+  descriptionFormat = 'markdown' as const;
   entityTypes: ProviderEntityType[] = [
     { name: 'issue', label: 'Issue', default: true },
     { name: 'pr', label: 'Pull Request' },
