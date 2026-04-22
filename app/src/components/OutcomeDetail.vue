@@ -389,7 +389,7 @@ function timeAgo(dateStr: string): string {
             <button class="btn-sync" @click="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
           </template>
         </div>
-        <div v-if="outcome.descriptionFormat === 'html'" class="description description-html" v-html="sanitizedDescription" @click.stop />
+        <div v-if="outcome.descriptionFormat === 'html'" class="description description-html" v-html="sanitizedDescription" @click="(e) => { if ((e.target as HTMLElement).closest('a')) e.stopPropagation(); }" />
         <div v-else class="description">{{ outcome.description }}</div>
       </section>
 

@@ -706,7 +706,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 /** Parse a date-only string (YYYY-MM-DD) to UTC midnight for DST-safe day math. */
 function parseDateUTC(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+  const [y, m, d] = dateStr.split('T')[0]!.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d));
 }
 
@@ -996,8 +996,8 @@ router.get('/timeline/pptx', async (_req, res) => {
       // Annotation: dominant type
       const totalAll = typeValues.reduce((a, b) => a + b, 0);
       const maxIdx = typeValues.indexOf(Math.max(...typeValues));
-      const dominantPct = Math.round((typeValues[maxIdx] / totalAll) * 100);
-      slide.addText(`${typeLabels[maxIdx]} accounts for ${dominantPct}% of priority weight`, {
+      const dominantPct = Math.round(((typeValues[maxIdx] ?? 0) / totalAll) * 100);
+      slide.addText(`${typeLabels[maxIdx] ?? ''} accounts for ${dominantPct}% of priority weight`, {
         x: 0.8, y: 0.9, w: 11.7, h: 0.4, fontSize: 12, fontFace: 'Arial', color: BRAND.muted,
       });
 
@@ -1163,7 +1163,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       });
 
       for (let i = 0; i < futureMilestones.length; i++) {
-        const ms = futureMilestones[i];
+        const ms = futureMilestones[i]!;
         const msDate = parseDateUTC(ms.targetDate);
         const dayOffset = (msDate.getTime() - minDate.getTime()) / 86_400_000;
         let markerX = tlLeft + (dayOffset / totalDays) * tlWidth - barW / 2;
@@ -1314,7 +1314,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       // Tech Debt card
       if (techDebtMotivations.length > 0) {
-        const topTD = techDebtMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+        const topTD = techDebtMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0]!;
         cards.push({
           color: 'c44a4a',
           title: 'Tech Debt',
@@ -1326,7 +1326,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
       // Competitive card
       if (competitiveMotivations.length > 0) {
-        const topComp = competitiveMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+        const topComp = competitiveMotivations.slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0]!;
         const totalDeals = competitiveMotivations.reduce((s, m) => s + Number(m.attributes.deals_lost || 0), 0);
         cards.push({
           color: '4ac48a',
@@ -1344,7 +1344,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       const offsetX = (13.33 - totalW) / 2;
 
       for (let i = 0; i < cards.length; i++) {
-        const c = cards[i];
+        const c = cards[i]!;
         const x = offsetX + i * (cardW + gap);
         const y = 1.3;
         const h = 4.5;
@@ -1429,7 +1429,7 @@ router.get('/timeline/pptx', async (_req, res) => {
           const pctB = b.completedCount / b.outcomeCount;
           // Prefer milestones that are both large and behind
           return (pctA - a.outcomeCount * 0.01) - (pctB - b.outcomeCount * 0.01);
-        })[0];
+        })[0]!;
         const pct = Math.round((worst.completedCount / worst.outcomeCount) * 100);
         if (pct < 50 && worst.outcomeCount >= 3) {
           decisions.push({
@@ -1450,7 +1450,7 @@ router.get('/timeline/pptx', async (_req, res) => {
 
     if (unplannedHighPri.length > 0) {
       const names = unplannedHighPri.map(m => `"${truncate(m.title, 30)}"`).join(', ');
-      const topM = unplannedHighPri[0];
+      const topM = unplannedHighPri[0]!;
       decisions.push({
         title: `${unplannedHighPri.length} high-priority item${unplannedHighPri.length > 1 ? 's have' : ' has'} no delivery plan`,
         detail: `${names} (top score: ${formatScore(topM.score)}, ${topM.typeName}) not assigned to any milestone`,
@@ -1466,7 +1466,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       });
 
       for (let i = 0; i < decisions.length; i++) {
-        const d = decisions[i];
+        const d = decisions[i]!;
         const y = 1.8 + i * 1.7;
 
         slide.addText([
