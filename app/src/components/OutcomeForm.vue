@@ -115,7 +115,8 @@ defineExpose({ save });
 
     <div class="field">
       <label class="label">Description</label>
-      <template v-if="isHtml && editor">
+      <div v-if="isHtml && !editor" class="input textarea tiptap-loading">Loading editor...</div>
+      <template v-else-if="isHtml && editor">
         <div class="tiptap-toolbar">
           <button type="button" :class="{ active: editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">B</button>
           <button type="button" :class="{ active: editor.isActive('italic') }" @click="editor.chain().focus().toggleItalic().run()">I</button>

@@ -78,6 +78,7 @@ export const outcomes = pgTable('outcomes', {
 }, (table) => [
   check('outcomes_status_check', sql`${table.status} IN ('draft', 'active', 'approved', 'deferred', 'completed', 'archived')`),
   check('outcomes_effort_check', sql`${table.effort} IS NULL OR ${table.effort} IN ('XS', 'S', 'M', 'L', 'XL')`),
+  check('outcomes_description_format_check', sql`${table.descriptionFormat} IN ('plain', 'html', 'markdown')`),
   index('outcomes_milestone_id_idx').on(table.milestoneId),
   index('outcomes_created_by_idx').on(table.createdBy),
   index('outcomes_priority_sort_idx').on(table.pinned, table.priorityScore, table.createdAt),

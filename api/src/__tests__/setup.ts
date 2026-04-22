@@ -70,7 +70,7 @@ beforeAll(async () => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       title TEXT NOT NULL,
       description TEXT,
-      description_format TEXT NOT NULL DEFAULT 'plain',
+      description_format TEXT NOT NULL DEFAULT 'plain' CHECK (description_format IN ('plain', 'html', 'markdown')),
       effort TEXT CHECK (effort IS NULL OR effort IN ('XS', 'S', 'M', 'L', 'XL')),
       milestone_id UUID REFERENCES milestones(id) ON DELETE SET NULL,
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'approved', 'deferred', 'completed', 'archived')),

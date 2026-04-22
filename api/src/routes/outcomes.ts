@@ -116,6 +116,7 @@ router.get('/', async (req, res) => {
     id: outcomes.id,
     title: outcomes.title,
     description: outcomes.description,
+    descriptionFormat: outcomes.descriptionFormat,
     effort: outcomes.effort,
     milestoneId: outcomes.milestoneId,
     status: outcomes.status,

@@ -22,6 +22,7 @@ function mapIssue(data: any): BackendItem {
     entityType: data.pull_request ? 'pr' : 'issue',
     entityId: String(data.number),
     title: data.title,
+    description: data.body || undefined,
     state: data.pull_request?.merged_at ? 'merged' : data.draft ? 'draft' : data.state,
     stateReason: data.state_reason || undefined,
     labels: (data.labels || []).map((l: any) => ({ name: l.name, color: l.color })),
