@@ -33,13 +33,13 @@ const error = ref('');
 const isHtml = computed(() => props.outcome?.descriptionFormat === 'html');
 const editor = isHtml.value
   ? useEditor({
-      content: props.outcome?.description || '',
+      content: '',  // Start empty, set content in onMounted
       extensions: [
         StarterKit,
         Link.configure({ openOnClick: false }),
       ],
     })
-  : null;
+  : ref(null);
 onBeforeUnmount(() => editor?.value?.destroy());
 
 onMounted(async () => {
@@ -55,6 +55,9 @@ onMounted(async () => {
       status: props.outcome.status || 'draft',
       tagIds: props.outcome.ownTagIds ?? (props.outcome.tags || []).filter((t: any) => !t.inherited).map((t: any) => t.id),
     };
+    if (editor.value) {
+      editor.value.commands.setContent(props.outcome.description || '');
+    }
   } else if (props.defaultMilestoneId) {
     form.value.milestoneId = props.defaultMilestoneId;
   }
@@ -71,7 +74,7 @@ async function save() {
   saving.value = true;
   try {
     const description = editor?.value
-      ? (editor.value.getHTML() || null)
+      ? (editor.value.getText().trim() ? editor.value.getHTML() : null)
       : (form.value.description.trim() || null);
     const data = {
       title: form.value.title.trim(),

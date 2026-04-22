@@ -117,6 +117,10 @@ describe('Backend Routes', () => {
       expect(createItemCalls[0]!.entityType).toBe('issue');
       expect(createItemCalls[0]!.title).toBe('Publish test');
       expect(createItemCalls[0]!.description).toBe('Test description');
+
+      // Verify descriptionFormat was not changed by publish (stays at default 'plain')
+      const outcomeRes = await api().get(`/outcomes/${outcome.body.id}`).set('X-User-Id', USER);
+      expect(outcomeRes.body.descriptionFormat).toBe('plain');
     });
 
     it('honours an explicit entityType from the request body', async () => {

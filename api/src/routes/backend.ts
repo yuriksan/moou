@@ -250,11 +250,6 @@ router.post('/:id/publish', async (req, res) => {
       createdBy: req.user!.id,
     }).returning() as any[];
 
-    // Set description format to match the provider's native format
-    await db.update(outcomes)
-      .set({ descriptionFormat: adapter.descriptionFormat })
-      .where(eq(outcomes.id, outcome.id));
-
     await recordHistory('external_link', link.id, 'created', {
       provider: { old: null, new: adapter.name },
       entityType: { old: null, new: entityType },

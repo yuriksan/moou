@@ -419,6 +419,7 @@ router.post('/:id/pull-primary', async (req, res) => {
     return;
   }
 
+  const adapter = getAdapter();
   const updateField: Record<string, unknown> = field === 'title'
     ? { title: pulledValue }
     : { description: pulledValue, descriptionFormat: adapter?.descriptionFormat ?? 'plain' };
