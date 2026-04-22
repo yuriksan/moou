@@ -84,6 +84,7 @@ function mapItem(entityType: string, data: any): BackendItem {
 export class ValueEdgeAdapter implements ProviderAdapter {
   name = 'valueedge';
   label = 'OpenText ValueEdge';
+  descriptionFormat = 'html' as const;
   entityTypes: ProviderEntityType[] = [
     { name: 'story', label: 'Story', default: true, parentEntityType: 'feature' },
     { name: 'feature', label: 'Feature', parentEntityType: 'epic' },

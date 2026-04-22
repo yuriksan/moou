@@ -10,6 +10,7 @@ import { buildSlugId } from '../composables/useSlug';
 import ConnectDialog from './ConnectDialog.vue';
 import ExternalLinkCard from './ExternalLinkCard.vue';
 import VEPublishDialog from './VEPublishDialog.vue';
+import { sanitizeHtml } from '../composables/useSanitizedHtml';
 
 const router = useRouter();
 
@@ -65,6 +66,10 @@ const milestoneNames = ref<Record<string, string>>({});
 // dropped entirely.
 const displayHistory = computed(() =>
   formatHistory(history.value, { milestoneNames: milestoneNames.value })
+);
+
+const sanitizedDescription = computed(() =>
+  outcome.value?.description ? sanitizeHtml(outcome.value.description) : ''
 );
 
 // Outcome is "draft" when it has no external links. Used by publish (hidden, kept for future use).
@@ -384,7 +389,8 @@ function timeAgo(dateStr: string): string {
             <button class="btn-sync" @click="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
           </template>
         </div>
-        <div class="description">{{ outcome.description }}</div>
+        <div v-if="outcome.descriptionFormat === 'html'" class="description description-html" v-html="sanitizedDescription" @click.stop />
+        <div v-else class="description">{{ outcome.description }}</div>
       </section>
 
       <!-- Score Breakdown -->
@@ -678,6 +684,14 @@ function timeAgo(dateStr: string): string {
   line-height: 1.65;
   white-space: pre-wrap;
 }
+.description-html { white-space: normal; }
+.description-html :deep(pre) { white-space: pre-wrap; word-break: break-word; background: var(--bg-2); padding: 8px 12px; border-radius: var(--radius-sm); }
+.description-html :deep(p) { margin: 0.4em 0; }
+.description-html :deep(ul), .description-html :deep(ol) { margin: 0.4em 0; padding-left: 1.5em; }
+.description-html :deep(table) { border-collapse: collapse; margin: 0.4em 0; }
+.description-html :deep(td), .description-html :deep(th) { border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
+.description-html :deep(a) { color: var(--accent); text-decoration: underline; }
+.description-html :deep(blockquote) { border-left: 3px solid var(--border); padding-left: 12px; margin: 0.4em 0; color: var(--text-2); }
 
 /* Score */
 .score-breakdown { display: flex; flex-direction: column; gap: 8px; }

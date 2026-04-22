@@ -116,6 +116,7 @@ router.get('/', async (req, res) => {
     id: outcomes.id,
     title: outcomes.title,
     description: outcomes.description,
+    descriptionFormat: outcomes.descriptionFormat,
     effort: outcomes.effort,
     milestoneId: outcomes.milestoneId,
     status: outcomes.status,
@@ -419,15 +420,22 @@ router.post('/:id/pull-primary', async (req, res) => {
     return;
   }
 
-  const updateField = field === 'title' ? { title: pulledValue } : { description: pulledValue };
+  const adapter = getAdapter();
+  const updateField: Record<string, unknown> = field === 'title'
+    ? { title: pulledValue }
+    : { description: pulledValue, descriptionFormat: adapter?.descriptionFormat ?? 'plain' };
   const [updated] = await db.update(outcomes)
     .set({ ...updateField, updatedAt: new Date() })
     .where(eq(outcomes.id, req.params.id))
     .returning() as any[];
 
-  await recordHistory('outcome', updated.id, 'updated', {
+  const changes: Record<string, { old: unknown; new: unknown }> = {
     [field]: { old: field === 'title' ? outcome.title : outcome.description, new: pulledValue },
-  }, req.user!.id);
+  };
+  if (field === 'description') {
+    changes.descriptionFormat = { old: outcome.descriptionFormat, new: adapter?.descriptionFormat ?? 'plain' };
+  }
+  await recordHistory('outcome', updated.id, 'updated', changes, req.user!.id);
   broadcast({ type: 'outcome_updated', id: updated.id });
   res.json({ outcome: updated, pulledValue });
 });

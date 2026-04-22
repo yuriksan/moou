@@ -13,6 +13,7 @@ vi.mock('../providers/adapter.js', () => ({
   getAdapter: () => ({
     name: 'github',
     label: 'GitHub',
+    descriptionFormat: 'markdown',
     entityTypes: [
       { name: 'issue', label: 'Issue', default: true },
       { name: 'pr', label: 'Pull Request' },
@@ -116,6 +117,10 @@ describe('Backend Routes', () => {
       expect(createItemCalls[0]!.entityType).toBe('issue');
       expect(createItemCalls[0]!.title).toBe('Publish test');
       expect(createItemCalls[0]!.description).toBe('Test description');
+
+      // Verify descriptionFormat was not changed by publish (stays at default 'plain')
+      const outcomeRes = await api().get(`/outcomes/${outcome.body.id}`).set('X-User-Id', USER);
+      expect(outcomeRes.body.descriptionFormat).toBe('plain');
     });
 
     it('honours an explicit entityType from the request body', async () => {
@@ -228,6 +233,22 @@ describe('Backend Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.pulledValue).toBe('Upstream title');
       expect(res.body.outcome.title).toBe('Upstream title');
+    });
+
+    it('pulling description sets descriptionFormat from adapter', async () => {
+      const outcome = await api().post('/outcomes')
+        .set('X-User-Id', USER).send({ title: 'Format test' });
+      const link = await api().post(`/outcomes/${outcome.body.id}/connect`)
+        .set('X-User-Id', USER).send({ entityType: 'issue', entityId: '42' });
+      await api().patch(`/outcomes/${outcome.body.id}/primary-link`)
+        .set('X-User-Id', USER).send({ linkId: link.body.id });
+
+      const res = await api().post(`/outcomes/${outcome.body.id}/pull-primary`)
+        .set('X-User-Id', USER).send({ field: 'description' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome.descriptionFormat).toBe('markdown');
+      expect(res.body.pulledValue).toBe('Upstream desc');
     });
 
     it('returns 400 when no primary link is set', async () => {

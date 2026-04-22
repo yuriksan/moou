@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onBeforeUnmount } from 'vue';
+import { useEditor, EditorContent } from '@tiptap/vue-3';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
 import { api } from '../composables/useApi';
 import TagPicker from './TagPicker.vue';
 
@@ -27,6 +30,18 @@ const milestones = ref<any[]>([]);
 const saving = ref(false);
 const error = ref('');
 
+const isHtml = computed(() => props.outcome?.descriptionFormat === 'html');
+const editor = isHtml.value
+  ? useEditor({
+      content: '',  // Start empty, set content in onMounted
+      extensions: [
+        StarterKit,
+        Link.configure({ openOnClick: false }),
+      ],
+    })
+  : ref(null);
+onBeforeUnmount(() => editor?.value?.destroy());
+
 onMounted(async () => {
   const ms = await api.getMilestones();
   milestones.value = ms.data;
@@ -40,6 +55,9 @@ onMounted(async () => {
       status: props.outcome.status || 'draft',
       tagIds: props.outcome.ownTagIds ?? (props.outcome.tags || []).filter((t: any) => !t.inherited).map((t: any) => t.id),
     };
+    if (editor.value) {
+      editor.value.commands.setContent(props.outcome.description || '');
+    }
   } else if (props.defaultMilestoneId) {
     form.value.milestoneId = props.defaultMilestoneId;
   }
@@ -55,9 +73,12 @@ async function save() {
   error.value = '';
   saving.value = true;
   try {
+    const description = editor?.value
+      ? (editor.value.getText().trim() ? editor.value.getHTML() : null)
+      : (form.value.description.trim() || null);
     const data = {
       title: form.value.title.trim(),
-      description: form.value.description.trim() || null,
+      description,
       effort: form.value.effort || null,
       milestoneId: form.value.milestoneId || null,
       status: form.value.status,
@@ -94,7 +115,18 @@ defineExpose({ save });
 
     <div class="field">
       <label class="label">Description</label>
-      <textarea v-model="form.description" class="input textarea" placeholder="Describe the outcome (markdown supported)" rows="4"></textarea>
+      <div v-if="isHtml && !editor" class="input textarea tiptap-loading">Loading editor...</div>
+      <template v-else-if="isHtml && editor">
+        <div class="tiptap-toolbar">
+          <button type="button" :class="{ active: editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">B</button>
+          <button type="button" :class="{ active: editor.isActive('italic') }" @click="editor.chain().focus().toggleItalic().run()">I</button>
+          <button type="button" :class="{ active: editor.isActive('bulletList') }" @click="editor.chain().focus().toggleBulletList().run()">&#8226; List</button>
+          <button type="button" :class="{ active: editor.isActive('orderedList') }" @click="editor.chain().focus().toggleOrderedList().run()">1. List</button>
+          <button type="button" :class="{ active: editor.isActive('blockquote') }" @click="editor.chain().focus().toggleBlockquote().run()">&#8220;</button>
+        </div>
+        <EditorContent :editor="editor" class="tiptap-editor" />
+      </template>
+      <textarea v-else v-model="form.description" class="input textarea" placeholder="Describe the outcome" rows="4"></textarea>
     </div>
 
     <div class="field-row">
@@ -174,4 +206,21 @@ defineExpose({ save });
 .tag-picker .tag.selected { border: 1px solid currentColor; font-weight: 600; }
 
 .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+
+.tiptap-toolbar {
+  display: flex; gap: 4px; margin-bottom: 6px;
+}
+.tiptap-toolbar button {
+  font-size: 12px; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-1); color: var(--text-1); cursor: pointer;
+}
+.tiptap-toolbar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tiptap-editor {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-1);
+  min-height: 100px; padding: 8px 10px; font-size: 13px; line-height: 1.5; color: var(--text-0);
+}
+.tiptap-editor :deep(.tiptap) { outline: none; min-height: 80px; }
+.tiptap-editor :deep(p) { margin: 0.3em 0; }
+.tiptap-editor :deep(ul), .tiptap-editor :deep(ol) { padding-left: 1.5em; }
+.tiptap-editor :deep(blockquote) { border-left: 3px solid var(--border); padding-left: 10px; color: var(--text-2); }
 </style>

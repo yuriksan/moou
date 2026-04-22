@@ -54,6 +54,7 @@ vi.mock('../providers/adapter.js', () => ({
   getAdapter: () => ({
     name: 'github',
     label: 'GitHub',
+    descriptionFormat: 'markdown',
     entityTypes: [
       { name: 'issue', label: 'Issue', default: true },
       { name: 'pr', label: 'Pull Request' },
@@ -160,6 +161,10 @@ describe('Backend sync — end-to-end', () => {
     expect(publishRes.body.cachedDetails.title).toBe('Build a thing');
     // Publish triggers one more detail fetch (after creation, to populate cache)
     expect(getItemCallCount).toBe(2);
+
+    // Verify descriptionFormat was not changed by publish (stays at default 'plain')
+    const publishedOutcome = await api().get(`/outcomes/${outcomeB.body.id}`);
+    expect(publishedOutcome.body.descriptionFormat).toBe('plain');
 
     // ─── 5. Refresh the connected link with a stale ETag ───
     // First refresh → returns 'not-modified' (etag matches), only fetchedAt updates

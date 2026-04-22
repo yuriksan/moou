@@ -33,6 +33,7 @@ export interface ProviderEntityType {
 export interface ProviderAdapter {
   name: string;
   label: string;
+  descriptionFormat: 'plain' | 'html' | 'markdown';
   entityTypes: ProviderEntityType[];
 
   /** Search backend items by query string */
