@@ -205,6 +205,8 @@ export const api = {
     request<{ outcome: any; pulledValue: string }>(`/outcomes/${outcomeId}/pull-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
   pushPrimary: (outcomeId: string, field: 'title' | 'description') =>
     request<{ ok: boolean }>(`/outcomes/${outcomeId}/push-primary`, { method: 'POST', body: JSON.stringify({ field }) }),
+  syncPreview: (outcomeId: string) =>
+    request<{ title: { local: string | null; remote: string | null }; description: { local: string | null; remote: string | null }; providerLabel: string }>(`/outcomes/${outcomeId}/sync-preview`),
 
   // Export/Import
   exportTimelineUrl: () => `${BASE}/export/timeline`,

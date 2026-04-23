@@ -57,6 +57,25 @@ const backendProviderLabel = ref('');
 const milestoneDate = ref<string | null>(null);
 const syncingTitle = ref(false);
 const syncingDescription = ref(false);
+const showSyncPanel = ref(false);
+
+// Derived from the cached details on the primary link — no extra API call needed.
+const primaryLink = computed(() =>
+  (outcome.value?.externalLinks ?? []).find((l: any) => l.id === outcome.value?.primaryLinkId) ?? null
+);
+const primaryCache = computed(() => (primaryLink.value?.cachedDetails as Record<string, unknown> | null) ?? null);
+const titleOutOfSync = computed(() => {
+  if (!primaryCache.value?.title || !outcome.value) return false;
+  return (primaryCache.value.title as string) !== outcome.value.title;
+});
+const descriptionOutOfSync = computed(() => {
+  if (!primaryCache.value || !outcome.value) return false;
+  const remote = (primaryCache.value.description as string | null | undefined) ?? '';
+  const local = outcome.value.description ?? '';
+  return remote !== local && remote !== '';
+});
+const anyOutOfSync = computed(() => titleOutOfSync.value || descriptionOutOfSync.value);
+watch(anyOutOfSync, (val) => { if (!val) showSyncPanel.value = false; });
 // All milestones, used so history entries can render `milestoneId` changes
 // as the milestone's actual name ("moved to Q3 Release") rather than a UUID.
 const milestoneNames = ref<Record<string, string>>({});
@@ -253,6 +272,8 @@ async function pullField(field: 'title' | 'description') {
   }
 }
 
+function openSyncPanel() { showSyncPanel.value = true; }
+
 async function pushField(field: 'title' | 'description') {
   const syncing = field === 'title' ? syncingTitle : syncingDescription;
   syncing.value = true;
@@ -336,8 +357,11 @@ function timeAgo(dateStr: string): string {
             <div class="field-with-sync">
               <h2 class="detail-title font-display editable-field" title="Click to edit" @click="editing = true">{{ outcome.title }}</h2>
               <template v-if="outcome.primaryLinkId">
-                <button class="btn-sync" @click="pullField('title')" :disabled="syncingTitle" title="Pull title from primary item">↓</button>
-                <button class="btn-sync" @click="pushField('title')" :disabled="syncingTitle" title="Push title to primary item">↑</button>
+                <button v-if="titleOutOfSync" class="btn-sync btn-sync-alert" @click="openSyncPanel" title="Title differs from primary item — click to sync">⇅</button>
+                <template v-else>
+                  <button class="btn-sync" @click="pullField('title')" :disabled="syncingTitle" title="Pull title from primary item">↓</button>
+                  <button class="btn-sync" @click="pushField('title')" :disabled="syncingTitle" title="Push title to primary item">↑</button>
+                </template>
               </template>
             </div>
             <div class="header-meta">
@@ -381,18 +405,59 @@ function timeAgo(dateStr: string): string {
         @cancel="editing = false"
       />
 
+      <!-- Sync diff panel -->
+      <div v-if="showSyncPanel" class="sync-preview-panel">
+        <div class="sync-preview-header">
+          <span class="sync-preview-title">Sync with {{ backendProviderLabel || 'linked item' }}</span>
+          <button class="btn-icon-close" @click="showSyncPanel = false">×</button>
+        </div>
+        <div v-if="titleOutOfSync" class="sync-field-row">
+          <div class="sync-field-name">Title</div>
+          <div class="sync-preview-body">
+            <div class="sync-value"><div class="sync-value-label">moou (current)</div><div class="sync-value-text">{{ outcome.title }}</div></div>
+            <div class="sync-value sync-value-remote"><div class="sync-value-label">{{ backendProviderLabel || 'remote' }}</div><div class="sync-value-text">{{ primaryCache?.title || '(empty)' }}</div></div>
+          </div>
+          <div class="sync-field-actions">
+            <button class="btn btn-sm btn-primary" @click="pullField('title')" :disabled="syncingTitle">↓ Pull</button>
+            <button class="btn btn-sm" @click="pushField('title')" :disabled="syncingTitle">↑ Push</button>
+          </div>
+        </div>
+        <div v-if="descriptionOutOfSync" class="sync-field-row">
+          <div class="sync-field-name">Description</div>
+          <div class="sync-preview-body">
+            <div class="sync-value"><div class="sync-value-label">moou (current)</div><div class="sync-value-text">{{ outcome.description || '(empty)' }}</div></div>
+            <div class="sync-value sync-value-remote"><div class="sync-value-label">{{ backendProviderLabel || 'remote' }}</div><div class="sync-value-text">{{ (primaryCache?.description as string) || '(empty)' }}</div></div>
+          </div>
+          <div class="sync-field-actions">
+            <button class="btn btn-sm btn-primary" @click="pullField('description')" :disabled="syncingDescription">↓ Pull</button>
+            <button class="btn btn-sm" @click="pushField('description')" :disabled="syncingDescription">↑ Push</button>
+          </div>
+        </div>
+        <div class="sync-preview-footer">
+          <button class="btn btn-sm" @click="showSyncPanel = false">Close</button>
+        </div>
+      </div>
+
       <!-- Description (read mode) -->
       <section v-else-if="outcome.description" class="section editable-section" @click="editing = true" title="Click to edit">
         <div class="section-title-row">
           <h3 class="section-title">Description</h3>
           <template v-if="outcome.primaryLinkId">
-            <button class="btn-sync" @click="pullField('description')" :disabled="syncingDescription" title="Pull description from primary item">↓</button>
-            <button class="btn-sync" @click="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
+            <button v-if="descriptionOutOfSync" class="btn-sync btn-sync-alert" @click.stop="openSyncPanel" title="Description differs from primary item — click to sync">⇅</button>
+            <template v-else>
+              <button class="btn-sync" @click.stop="pullField('description')" :disabled="syncingDescription" title="Pull description from primary item">↓</button>
+              <button class="btn-sync" @click.stop="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
+            </template>
           </template>
         </div>
         <div v-if="outcome.descriptionFormat === 'html'" class="description description-html" v-html="sanitizedDescription" @click="(e) => { if ((e.target as HTMLElement).closest('a')) e.stopPropagation(); }" />
         <div v-else class="description">{{ outcome.description }}</div>
       </section>
+      <!-- No local description but primary item has one — show hint -->
+      <div v-else-if="!editing && descriptionOutOfSync" class="description-sync-hint">
+        <span>No description — {{ backendProviderLabel || 'primary item' }} has one</span>
+        <button class="btn-sync btn-sync-alert" @click="openSyncPanel" title="Pull description from primary item">⇅</button>
+      </div>
 
       <!-- Score Breakdown -->
       <section v-if="!editing && score && score.motivations?.length" class="section">
@@ -662,6 +727,41 @@ function timeAgo(dateStr: string): string {
 }
 .btn-sync:hover { border-color: var(--accent); color: var(--accent); }
 .btn-sync:disabled { opacity: 0.3; cursor: default; }
+.btn-sync-alert { border-color: var(--amber, #c07a1a); color: var(--amber, #c07a1a); }
+.btn-sync-alert:hover { background: color-mix(in srgb, var(--amber, #c07a1a) 10%, transparent); }
+
+.description-sync-hint {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 24px; font-size: 12px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sync-preview-panel {
+  margin: 0 16px 8px;
+  border: 1px solid var(--amber, #c07a1a);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.sync-preview-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--amber, #c07a1a) 8%, transparent);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sync-preview-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--amber, #c07a1a); }
+.btn-icon-close { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--text-3); padding: 0 2px; line-height: 1; }
+.btn-icon-close:hover { color: var(--text-1); }
+.sync-field-row { border-bottom: 1px solid var(--border-subtle); }
+.sync-field-row:last-of-type { border-bottom: none; }
+.sync-field-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); padding: 6px 12px 0; }
+.sync-preview-body { display: grid; grid-template-columns: 1fr 1fr; }
+.sync-value { padding: 6px 12px 8px; }
+.sync-value + .sync-value { border-left: 1px solid var(--border-subtle); }
+.sync-value-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-bottom: 3px; }
+.sync-value-text { font-size: 13px; color: var(--text-1); white-space: pre-wrap; word-break: break-word; max-height: 60px; overflow-y: auto; }
+.sync-value-remote { background: color-mix(in srgb, var(--amber, #c07a1a) 4%, transparent); }
+.sync-field-actions { display: flex; gap: 6px; padding: 6px 12px 8px; }
+.sync-preview-footer { display: flex; justify-content: flex-end; padding: 8px 12px; border-top: 1px solid var(--border-subtle); background: var(--bg-2); }
 .header-meta { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
 .header-actions { display: flex; gap: 6px; margin-top: 10px; }
 .btn-danger { border-color: var(--red); color: var(--red); background: var(--red-dim); }
