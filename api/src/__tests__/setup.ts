@@ -29,9 +29,25 @@ beforeAll(async () => {
       provider TEXT NOT NULL DEFAULT 'mock',
       provider_id TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
-      role TEXT,
+      job_title TEXT,
+      role TEXT NOT NULL DEFAULT 'modifier' CHECK (role IN ('admin', 'modifier', 'viewer')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+      email TEXT,
       initials TEXT NOT NULL,
-      avatar_url TEXT
+      avatar_url TEXT,
+      created_by TEXT REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_login_at TIMESTAMPTZ
+    );
+
+    CREATE TABLE user_audit_log (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      target_user_id TEXT NOT NULL REFERENCES users(id),
+      actor_user_id TEXT NOT NULL REFERENCES users(id),
+      action TEXT NOT NULL CHECK (action IN ('granted', 'role_changed', 'revoked', 'restored')),
+      from_role TEXT,
+      to_role TEXT,
+      at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE motivation_types (
@@ -176,6 +192,7 @@ beforeAll(async () => {
 // Clean data between tests (keep users and motivation_types)
 beforeEach(async () => {
   await pool.query(`
+    DELETE FROM user_audit_log;
     DELETE FROM history;
     DELETE FROM comments;
     DELETE FROM external_links;

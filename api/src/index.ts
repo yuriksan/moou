@@ -1,5 +1,6 @@
 import { app } from './app.js';
 import { seed } from './db/seed.js';
+import { reconcileConfiguredAdmins } from './auth/configured-admins.js';
 import { pool } from './db/index.js';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -39,6 +40,9 @@ async function start() {
   } catch (err) {
     console.error('Seed error:', err);
   }
+
+  // Bootstrap configured admins (after seed, before listen)
+  await reconcileConfiguredAdmins();
 
   cron.schedule('0 0 * * *', () => {
     console.log('Running daily score recalculation...');

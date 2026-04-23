@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware } from './middleware/auth.js';
+import { requireWrite, requireAdmin } from './middleware/authorize.js';
 import { db } from './db/index.js';
 import { motivationTypes } from './db/schema.js';
 import tagsRouter from './routes/tags.js';
@@ -158,6 +159,13 @@ app.use(authMiddleware);
 
 // ─── API routes — all under /api/ ───
 const api = express.Router();
+
+// Require write role (admin/modifier) for all mutations. Viewers get 403.
+// This runs before route handlers, so individual routes don't need requireWrite.
+api.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  requireWrite(req, res, next);
+});
 
 // Tighter limit for mutations (POST/PUT/PATCH/DELETE) — applied before any
 // route that lives on the api router.
