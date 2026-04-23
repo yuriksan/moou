@@ -41,30 +41,31 @@ Today `role` is nullable free-text used as a job title (seeded "Director of Engi
    name: text('name').notNull(),
 -  role: text('role'),
 +  jobTitle: text('job_title'),                                         // renamed from role
-+  role: text('role', { enum: ['admin','modifier','viewer'] })          // new meaning
-+    .notNull(),
-+  status: text('status', { enum: ['active','revoked'] })
-+    .notNull().default('active'),
++  role: text('role').notNull(),                                         // new meaning
++  status: text('status').notNull().default('active'),
 +  email: text('email'),                                                // for search/display
-+  createdAt: timestamp('created_at').notNull().defaultNow(),
++  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 +  createdBy: text('created_by').references(() => users.id),            // admin who granted
-+  lastLoginAt: timestamp('last_login_at'),
++  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
    initials: text('initials').notNull(),
    avatarUrl: text('avatar_url'),
- });
++}, (table) => [
++  check('users_role_check', sql`${table.role} IN ('admin', 'modifier', 'viewer')`),
++  check('users_status_check', sql`${table.status} IN ('active', 'revoked')`),
++]);
 +
 +export const userAuditLog = pgTable('user_audit_log', {
 +  id: uuid('id').primaryKey().defaultRandom(),
 +  targetUserId: text('target_user_id').notNull().references(() => users.id),
 +  actorUserId: text('actor_user_id').notNull().references(() => users.id),
-+  action: text('action', { enum: ['granted','role_changed','revoked','restored'] }).notNull(),
++  action: text('action').notNull(),  // CHECK: 'granted','role_changed','revoked','restored'
 +  fromRole: text('from_role'),
 +  toRole: text('to_role'),
 +  at: timestamp('at').notNull().defaultNow(),
 +});
 ```
 
-**Migration strategy** (drizzle-kit, two-phase):
+**Migration strategy** (drizzle-kit, three migrations — nullable → backfill → enforce):
 1. Add the new columns as nullable.
 2. Copy existing `role` into `jobTitle`.
 3. Set `role = 'admin'` for any user ID listed in `ADMIN_USERS`; set `role = 'modifier'` for everyone else (chosen default — §11).
@@ -88,7 +89,7 @@ Format: comma-separated `<provider>:<providerId>` tokens. Provider prefix must m
 - For each valid token, upsert a `users` row with `role='admin'`, `status='active'`.
 - If the row doesn't exist, insert a stub (`name = providerId`, `initials = '??'`). Real profile fields fill in on first login.
 - The set of configured IDs is kept in memory as `configuredAdminIds: Set<string>` for runtime immutability checks (§7).
-- **Boot-time assertion**: if `ADMIN_USERS` contains no valid entry for the active provider, the server refuses to start. Prevents accidentally deploying a system with no admin.
+- **Boot-time assertion**: if `ADMIN_USERS` contains no valid entry for the active provider, the server refuses to start. Prevents accidentally deploying a system with no admin. **Exemption**: when `EXTERNAL_PROVIDER` is `mock` (local dev / tests), the assertion is skipped — mock mode seeds its own users and doesn't need `ADMIN_USERS`.
 
 ## 5. Login gate
 
@@ -97,7 +98,7 @@ Touch points: `api/src/auth/github.ts:127-148`, `api/src/auth/valueedge.ts:119-1
 **New check, applied inside both OAuth/handshake callbacks after we know `provider:providerId`:**
 
 ```
-const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 if (!user || user.status === 'revoked') {
   clearSession();
   redirect(`/login?error=ACCESS_DENIED`);
@@ -106,7 +107,11 @@ if (!user || user.status === 'revoked') {
 // update lastLoginAt, refresh name/avatar/email from provider profile
 ```
 
-**Remove auto-creation of users on first login** (github.ts:127, valueedge.ts:167). A row must already exist — either bootstrapped from `ADMIN_USERS` or granted by an admin via the UI. This is the enforcement point the spec hinges on.
+**Remove auto-creation of users on first login** in three places:
+- OAuth callbacks (`github.ts:127`, `valueedge.ts:167`) — currently upsert a new user row on first successful login.
+- Auth middleware (`api/src/middleware/auth.ts`) — currently auto-inserts a user from session data if the DB row is missing (handles DB-wipe-while-cookie-survives scenario). This bypass must also be removed so that a missing row = denied, not silently re-created.
+
+A row must already exist — either bootstrapped from `ADMIN_USERS` or granted by an admin via the UI. This is the enforcement point the spec hinges on.
 
 **Middleware** (`api/src/middleware/auth.ts`): on every request, re-check `status !== 'revoked'` so revocation takes effect within one request cycle rather than only at next login.
 
@@ -118,8 +123,8 @@ Replace the ad-hoc `req.user?.role === 'admin'` checks (`api/src/routes/backend.
 
 ```ts
 export const requireRole = (...allowed: Role[]) => (req, res, next) => {
-  if (!req.user?.role) return res.status(401).json({ error: 'UNAUTHENTICATED' });
-  if (!allowed.includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
+  if (!req.user?.role) return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
+  if (!allowed.includes(req.user.role)) return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
   next();
 };
 export const requireWrite = requireRole('admin', 'modifier');

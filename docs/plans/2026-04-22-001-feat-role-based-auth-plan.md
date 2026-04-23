@@ -7,7 +7,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 ## Phase 1 — Schema & migration
 
 **Files**
-- `api/src/db/schema.ts:13-21` — rename `role` → `jobTitle`; add new `role` (enum), `status`, `email`, `createdAt`, `createdBy`, `lastLoginAt`; add `user_audit_log` table.
+- `api/src/db/schema.ts:13-21` — rename `role` → `jobTitle`; add new `role` (text + CHECK constraint), `status` (text + CHECK), `email`, `createdAt`, `createdBy`, `lastLoginAt`; add `user_audit_log` table.
 - `api/drizzle/` — `drizzle-kit generate` produces a new migration.
 - `api/src/db/seed.ts:6-11` — update to populate both `jobTitle` and `role`.
 
