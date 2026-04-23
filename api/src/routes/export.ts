@@ -910,7 +910,7 @@ router.get('/timeline/pptx', async (_req, res) => {
       // Thin accent bar at top
       { rect: { x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: DECK.accent } } },
       // Footer left
-      { text: { text: 'Confidential \u00b7 moou', options: { x: 0.5, y: 7.1, w: 4.0, h: 0.3, fontSize: 8, fontFace: 'Calibri', color: DECK.textLight } } },
+      { text: { text: `Confidential \u00b7 ${dateStr} \u00b7 moou`, options: { x: 0.5, y: 7.1, w: 5.0, h: 0.3, fontSize: 8, fontFace: 'Calibri', color: DECK.textLight } } },
     ],
     slideNumber: { x: 12.0, y: 7.1, w: 1.0, h: 0.3, fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted },
   });
