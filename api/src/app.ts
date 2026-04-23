@@ -209,7 +209,10 @@ api.get('/motivation-types', async (_req, res) => {
 // ─── Provider connection health check ───
 // Lightweight endpoint the frontend polls to keep the provider token alive
 // and detect expiration proactively.
-api.get('/provider/health', async (req, res) => {
+api.get('/provider/health', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}, async (req, res) => {
   const adapter = getAdapter();
   if (!adapter?.checkConnection) {
     // Provider doesn't support health checks — always healthy
