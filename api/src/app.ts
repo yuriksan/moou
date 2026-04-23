@@ -114,7 +114,7 @@ app.get('/api/me', async (req, res) => {
     if (session.user) {
       // Return full DB record (includes role, status) rather than session snapshot
       const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
-      if (dbUser) { res.json(dbUser); return; }
+      if (dbUser && dbUser.status !== 'revoked') { res.json(dbUser); return; }
       // Session exists but user deleted from DB
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
       return;

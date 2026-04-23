@@ -52,7 +52,7 @@ const addingUserId = ref<string | null>(null);
 const auditUserId = ref<string | null>(null);
 const auditEntries = ref<AuditEntry[]>([]);
 
-let searchTimeout: ReturnType<typeof setTimeout>;
+let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
 async function loadUsers(append = false) {
   loading.value = true;
@@ -152,6 +152,7 @@ async function restoreUser(user: UserRow) {
 
 async function openAudit(userId: string) {
   auditUserId.value = userId;
+  auditEntries.value = [];
   try {
     const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/audit`, {
       credentials: 'include',
