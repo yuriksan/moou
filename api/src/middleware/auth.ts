@@ -15,7 +15,9 @@ declare global {
       user?: {
         id: string;
         name: string;
-        role: string | null;
+        role: string;
+        status: string;
+        jobTitle?: string | null;
         initials: string;
         avatarUrl?: string | null;
       };
@@ -44,24 +46,13 @@ async function githubAuth(req: Request, res: Response, next: NextFunction) {
   const session = await getSession(req, res);
 
   if (session.user && session.accessToken) {
-    // Load the full user record from the DB (ensures FK-safe and includes role).
-    // If the DB was wiped but the cookie survived, upsert from session data.
     const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
-    if (dbUser) {
-      req.user = dbUser as any;
-    } else {
-      const su = session.user as any;
-      await db.insert(users).values({
-        id: su.id,
-        provider: su.provider || 'github',
-        providerId: su.providerId || su.id.replace('github:', ''),
-        name: su.name,
-        initials: su.initials || su.name?.slice(0, 2)?.toUpperCase() || '??',
-        avatarUrl: su.avatarUrl || null,
-      });
-      const [created] = await db.select().from(users).where(eq(users.id, su.id)).limit(1);
-      req.user = (created || su) as any;
+    if (!dbUser || dbUser.status === 'revoked') {
+      // No DB row or revoked — deny access (no auto-creation)
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Access denied. Contact an admin to get access.' } });
+      return;
     }
+    req.user = dbUser as any;
     req.accessToken = session.accessToken;
     return next();
   }
@@ -76,13 +67,12 @@ async function sessionAuth(req: Request, res: Response, next: NextFunction) {
   const session = await getSession(req, res);
 
   if (session.user && session.accessToken) {
-    // Load the full user record from the DB so req.user includes role
     const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
-    if (dbUser) {
-      req.user = dbUser as any;
-    } else {
-      req.user = session.user as any;
+    if (!dbUser || dbUser.status === 'revoked') {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Access denied. Contact an admin to get access.' } });
+      return;
     }
+    req.user = dbUser as any;
     req.accessToken = session.accessToken;
     return next();
   }

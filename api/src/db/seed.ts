@@ -4,10 +4,10 @@ import { count, eq, isNull, and } from 'drizzle-orm';
 
 // ─── Mock Users ───
 const MOCK_USERS = [
-  { id: 'mock:sarah-chen', provider: 'mock', providerId: 'sarah-chen', name: 'Sarah Chen', role: 'Director of Engineering', initials: 'SC' },
-  { id: 'mock:james-obi', provider: 'mock', providerId: 'james-obi', name: 'James Obi', role: 'Senior Product Manager', initials: 'JO' },
-  { id: 'mock:dev-patel', provider: 'mock', providerId: 'dev-patel', name: 'Dev Patel', role: 'Engineering Lead', initials: 'DP' },
-  { id: 'mock:anna-mueller', provider: 'mock', providerId: 'anna-mueller', name: 'Anna Müller', role: 'Product Manager', initials: 'AM' },
+  { id: 'mock:sarah-chen', provider: 'mock', providerId: 'sarah-chen', name: 'Sarah Chen', jobTitle: 'Director of Engineering', role: 'admin' as const, initials: 'SC' },
+  { id: 'mock:james-obi', provider: 'mock', providerId: 'james-obi', name: 'James Obi', jobTitle: 'Senior Product Manager', role: 'modifier' as const, initials: 'JO' },
+  { id: 'mock:dev-patel', provider: 'mock', providerId: 'dev-patel', name: 'Dev Patel', jobTitle: 'Engineering Lead', role: 'modifier' as const, initials: 'DP' },
+  { id: 'mock:anna-mueller', provider: 'mock', providerId: 'anna-mueller', name: 'Anna Müller', jobTitle: 'Product Manager', role: 'viewer' as const, initials: 'AM' },
 ];
 
 // ─── Motivation Types with JSON Schema 2020-12 ───

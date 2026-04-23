@@ -20,13 +20,20 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 onMounted(async () => {
   const saved = localStorage.getItem('moou-ve-username');
   if (saved) userName.value = saved;
+
+  // Check for access-denied redirect from login gate
+  const urlError = new URLSearchParams(window.location.search).get('error');
+  if (urlError === 'ACCESS_DENIED') {
+    error.value = 'Your account isn\'t authorized. Ask an admin to grant you access.';
+  }
+
   try {
     const res = await fetch(`${BASE}/provider`);
     const data = await res.json();
     provider.value = data.name || '';
     providerLabel.value = data.label || data.name || '';
   } catch {
-    error.value = 'Could not reach server.';
+    error.value = error.value || 'Could not reach server.';
   }
 });
 

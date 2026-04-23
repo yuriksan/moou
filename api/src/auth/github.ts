@@ -124,28 +124,28 @@ router.get('/callback', async (req, res) => {
     avatar_url: string;
   };
 
-  // Upsert user in database
+  // Check if user exists and is allowed to log in (no auto-creation)
   const userId = `github:${profile.id}`;
   const displayName = profile.name || profile.login;
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || profile.login.slice(0, 2).toUpperCase();
 
   const [existing] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  if (existing) {
-    await db.update(users).set({
-      name: displayName,
-      avatarUrl: profile.avatar_url,
-      initials,
-    }).where(eq(users.id, userId));
-  } else {
-    await db.insert(users).values({
-      id: userId,
-      provider: 'github',
-      providerId: String(profile.id),
-      name: displayName,
-      initials,
-      avatarUrl: profile.avatar_url,
-    });
+  if (!existing || existing.status === 'revoked') {
+    // User not in DB or revoked — deny login
+    delete session.returnTo;
+    delete session.oauthState;
+    await session.save();
+    res.redirect(`/login?error=ACCESS_DENIED`);
+    return;
   }
+
+  // Update profile fields from GitHub (name, avatar, email, lastLoginAt)
+  await db.update(users).set({
+    name: displayName,
+    avatarUrl: profile.avatar_url,
+    initials,
+    lastLoginAt: new Date(),
+  }).where(eq(users.id, userId));
 
   // Create session
   session.accessToken = tokenData.access_token;

@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { api } from './composables/useApi';
 import { useSSE } from './composables/useSSE';
 import { toast } from './composables/useToast';
+import { currentUser, isAdmin } from './composables/useAuth';
 import Walkthrough from './components/Walkthrough.vue';
 import SearchBar from './components/SearchBar.vue';
 import Toast from './components/Toast.vue';
@@ -78,6 +79,7 @@ async function fetchMe() {
   try {
     const me = await api.getMe();
     authenticatedUser.value = me;
+    currentUser.value = me;
   } catch {
     router.push('/login');
     authChecked.value = true;
@@ -103,6 +105,7 @@ async function logout() {
     await api.logout();
   }
   authenticatedUser.value = null;
+  currentUser.value = null;
   router.push('/login');
 }
 
@@ -152,9 +155,10 @@ const navItems = [
 
     <div class="topbar-right">
       <SearchBar />
-      <div class="admin-dropdown">
+      <div v-if="isAdmin" class="admin-dropdown">
         <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙</button>
         <div v-if="showAdminMenu" class="admin-menu" @click.stop>
+          <div class="admin-menu-item" @click="router.push('/admin/users'); showAdminMenu = false">Users</div>
           <div class="admin-menu-item" @click="router.push('/admin/tags'); showAdminMenu = false">Tags</div>
           <div class="admin-menu-item" @click="router.push('/admin/field-config'); showAdminMenu = false">Field Requirements</div>
         </div>
@@ -165,6 +169,8 @@ const navItems = [
         <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" />
         <div v-else class="avatar">{{ authenticatedUser.initials }}</div>
         <span class="user-name">{{ authenticatedUser.name }}</span>
+        <span v-if="currentUser?.role === 'admin'" class="role-badge role-admin">Admin</span>
+        <span v-else-if="currentUser?.role === 'viewer'" class="role-badge role-viewer">Read-only</span>
         <div v-if="showUserMenu" class="user-menu">
           <div class="user-menu-item" @click.stop="logout">Sign out</div>
         </div>
@@ -331,6 +337,16 @@ const navItems = [
   font-weight: 500;
   color: var(--text-1);
 }
+.role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.role-admin { background: var(--accent-dim, #e8f0eb); color: var(--accent, #4a7c59); }
+.role-viewer { background: #fef3cd; color: #856404; }
 .user-menu {
   position: absolute;
   top: 100%;

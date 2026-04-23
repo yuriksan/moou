@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { currentUser } from './composables/useAuth';
+import { toast } from './composables/useToast';
 
 // Each entity view accepts an optional `:slugId?` segment of the form
 // `human-readable-slug-{uuid}`. The slug is decorative; the UUID at the tail
@@ -34,13 +36,33 @@ const router = createRouter({
       path: '/admin/tags',
       name: 'tag-admin',
       component: () => import('./views/TagAdminView.vue'),
+      meta: { requiresRole: 'admin' },
     },
     {
       path: '/admin/field-config',
       name: 'field-config-admin',
       component: () => import('./views/FieldConfigAdminView.vue'),
+      meta: { requiresRole: 'admin' },
+    },
+    {
+      path: '/admin/users',
+      name: 'user-admin',
+      component: () => import('./views/UserAdminView.vue'),
+      meta: { requiresRole: 'admin' },
     },
   ],
+});
+
+// Route guard: redirect non-admins away from admin pages
+router.beforeEach((to) => {
+  const requiredRole = to.meta.requiresRole as string | undefined;
+  if (!requiredRole) return;
+  // Don't enforce until auth state is loaded
+  if (!currentUser.value) return;
+  if (currentUser.value.role !== requiredRole) {
+    toast.error('You don\'t have access to that page.');
+    return '/';
+  }
 });
 
 export default router;

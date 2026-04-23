@@ -25,7 +25,7 @@ vi.mock('../db/index.js', () => ({
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue([]), // no existing user — triggers insert path
+          limit: vi.fn().mockResolvedValue([{ id: 'valueedge:u1', status: 'active', role: 'admin' }]), // existing active user
         }),
       }),
     }),

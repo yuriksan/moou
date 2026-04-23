@@ -15,10 +15,31 @@ export const users = pgTable('users', {
   provider: text('provider').notNull().default('mock'),
   providerId: text('provider_id').notNull().default(''),
   name: text('name').notNull(),
-  role: text('role'),
+  jobTitle: text('job_title'),
+  role: text('role').notNull().default('modifier'),
+  status: text('status').notNull().default('active'),
+  email: text('email'),
   initials: text('initials').notNull(),
   avatarUrl: text('avatar_url'),
-});
+  createdBy: text('created_by').references((): AnyPgColumn => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+}, (table) => [
+  check('users_role_check', sql`${table.role} IN ('admin', 'modifier', 'viewer')`),
+  check('users_status_check', sql`${table.status} IN ('active', 'revoked')`),
+]);
+
+export const userAuditLog = pgTable('user_audit_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  targetUserId: text('target_user_id').notNull().references(() => users.id),
+  actorUserId: text('actor_user_id').notNull().references(() => users.id),
+  action: text('action').notNull(),
+  fromRole: text('from_role'),
+  toRole: text('to_role'),
+  at: timestamp('at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  check('audit_action_check', sql`${table.action} IN ('granted', 'role_changed', 'revoked', 'restored')`),
+]);
 
 // ─── Motivation Types ───
 export const motivationTypes = pgTable('motivation_types', {

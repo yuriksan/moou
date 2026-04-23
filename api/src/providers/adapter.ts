@@ -77,6 +77,21 @@ export interface ProviderAdapter {
    * Returns null if this provider doesn't support dynamic field discovery.
    */
   getCreateOptions?(token: string, entityType: string): Promise<CreateOptions | null>;
+
+  /** Search the provider's user directory (for admin user-add flow). */
+  searchDirectory?(
+    token: string,
+    query: string,
+    opts?: { cursor?: string; limit?: number },
+  ): Promise<{ results: ProviderUser[]; nextCursor?: string }>;
+}
+
+export interface ProviderUser {
+  providerId: string;
+  name: string;
+  email?: string;
+  avatarUrl?: string;
+  handle?: string;
 }
 
 // ─── Create-form field descriptors ───

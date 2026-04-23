@@ -4,8 +4,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware } from './middleware/auth.js';
+import { requireWrite } from './middleware/authorize.js';
 import { db } from './db/index.js';
-import { motivationTypes } from './db/schema.js';
+import { motivationTypes, users } from './db/schema.js';
+import { eq } from 'drizzle-orm';
 import tagsRouter from './routes/tags.js';
 import milestonesRouter from './routes/milestones.js';
 import outcomesRouter from './routes/outcomes.js';
@@ -18,6 +20,7 @@ import exportRouter from './routes/export.js';
 import importRouter from './routes/import.js';
 import searchRouter from './routes/search.js';
 import backendRouter from './routes/backend.js';
+import adminRouter from './routes/admin.js';
 import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
 import { getSession } from './auth/session.js';
@@ -109,7 +112,11 @@ app.get('/api/me', async (req, res) => {
   if (process.env.EXTERNAL_PROVIDER === 'github' || process.env.EXTERNAL_PROVIDER === 'valueedge') {
     const session = await getSession(req, res);
     if (session.user) {
-      res.json(session.user);
+      // Return full DB record (includes role, status) rather than session snapshot
+      const [dbUser] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
+      if (dbUser && dbUser.status !== 'revoked') { res.json(dbUser); return; }
+      // Session exists but user deleted from DB
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
       return;
     }
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
@@ -118,9 +125,6 @@ app.get('/api/me', async (req, res) => {
   // Mock mode — return user from header
   const userId = req.headers['x-user-id'];
   if (typeof userId === 'string') {
-    const { db } = await import('./db/index.js');
-    const { users } = await import('./db/schema.js');
-    const { eq } = await import('drizzle-orm');
     const lookupId = userId.includes(':') ? userId : `mock:${userId}`;
     const [user] = await db.select().from(users).where(eq(users.id, lookupId)).limit(1);
     if (user) { res.json(user); return; }
@@ -159,6 +163,13 @@ app.use(authMiddleware);
 // ─── API routes — all under /api/ ───
 const api = express.Router();
 
+// Require write role (admin/modifier) for all mutations. Viewers get 403.
+// This runs before route handlers, so individual routes don't need requireWrite.
+api.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  requireWrite(req, res, next);
+});
+
 // Tighter limit for mutations (POST/PUT/PATCH/DELETE) — applied before any
 // route that lives on the api router.
 api.use(mutationLimiter);
@@ -183,6 +194,7 @@ api.use('/outcomes', backendRouter); // POST /api/outcomes/:id/connect and /publ
 api.use('/external-links', backendRouter); // POST /api/external-links/:linkId/refresh
 api.use('/export', exportRouter);
 api.use('/import', importRouter);
+api.use('/admin', adminRouter);
 
 api.get('/motivation-types', async (_req, res) => {
   const types = await db.select().from(motivationTypes);
