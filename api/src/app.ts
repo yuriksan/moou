@@ -218,7 +218,7 @@ api.get('/provider/health', async (req, res) => {
   }
   const token = req.accessToken;
   if (!token) {
-    res.json({ connected: false });
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
     return;
   }
   const connected = await adapter.checkConnection(token);

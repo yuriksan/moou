@@ -160,7 +160,10 @@ const navItems = [
       <span
         v-if="connectionState !== 'idle'"
         class="connection-status"
+        role="img"
+        :aria-label="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection' : 'Backend disconnected — session may have expired'"
         :title="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection...' : 'Backend disconnected — session may have expired'"
+        tabindex="0"
       >{{ connectionState === 'connected' ? '🟢' : connectionState === 'checking' ? '🔵' : '🔴' }}</span>
       <SearchBar />
       <div v-if="isAdmin" class="admin-dropdown">
