@@ -19,6 +19,7 @@ import exportRouter from './routes/export.js';
 import importRouter from './routes/import.js';
 import searchRouter from './routes/search.js';
 import backendRouter from './routes/backend.js';
+import adminRouter from './routes/admin.js';
 import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
 import { getSession } from './auth/session.js';
@@ -191,6 +192,7 @@ api.use('/outcomes', backendRouter); // POST /api/outcomes/:id/connect and /publ
 api.use('/external-links', backendRouter); // POST /api/external-links/:linkId/refresh
 api.use('/export', exportRouter);
 api.use('/import', importRouter);
+api.use('/admin', adminRouter);
 
 api.get('/motivation-types', async (_req, res) => {
   const types = await db.select().from(motivationTypes);

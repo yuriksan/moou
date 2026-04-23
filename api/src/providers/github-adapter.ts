@@ -154,4 +154,34 @@ export class GitHubAdapter implements ProviderAdapter {
       throw new Error(`GitHub API error: ${res.status} — ${err.message || 'failed to update issue'}`);
     }
   }
+
+  async searchDirectory(token: string, query: string, opts?: { cursor?: string; limit?: number }) {
+    if (!query || query.length < 2) return { results: [] };
+
+    const limit = opts?.limit || 20;
+    const page = opts?.cursor ? Number(opts.cursor) : 1;
+    const params = new URLSearchParams({
+      q: query,
+      per_page: String(limit),
+      page: String(page),
+    });
+
+    const res = await fetch(`${GITHUB_API}/search/users?${params}`, { headers: headers(token) });
+    if (res.status === 401 || res.status === 403) {
+      const { ProviderAuthError } = await import('./adapter.js');
+      throw new ProviderAuthError('GitHub authentication failed. Please sign in again.');
+    }
+    if (!res.ok) return { results: [] };
+
+    const data = await res.json() as { items: any[]; total_count: number };
+    const results = (data.items || []).map((u: any) => ({
+      providerId: String(u.id),
+      name: u.login,
+      handle: u.login,
+      avatarUrl: u.avatar_url,
+    }));
+
+    const hasMore = data.total_count > page * limit;
+    return { results, nextCursor: hasMore ? String(page + 1) : undefined };
+  }
 }
