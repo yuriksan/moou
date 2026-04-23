@@ -11,7 +11,7 @@ Redesign the PowerPoint roadmap export from a data-dump deck into a polished exe
 
 ## Why This Approach
 
-The current deck (PR #5) established the right content — KPI cards, charts, risk cards, appendix. But the visual quality is low: flat backgrounds, basic shapes, Arial everywhere, monotonous layout. Enterprise roadmap decks use gradient headers, accent stripes, takeaway titles, swimlane timelines, and traffic-light status indicators. The narrative structure also needs work — the current deck doesn't distinguish between in-flight delivery and future strategy, which are the two questions executives actually ask.
+The current deck (executive PPTX from the `feat/exec-pptx-deck` branch) established the right content — KPI cards, charts, risk cards, appendix. But the visual quality is low: flat backgrounds, basic shapes, Arial everywhere, monotonous layout. Enterprise roadmap decks use gradient headers, accent stripes, takeaway titles, swimlane timelines, and traffic-light status indicators. The narrative structure also needs work — the current deck doesn't distinguish between in-flight delivery and future strategy, which are the two questions executives actually ask.
 
 ## Key Decisions
 

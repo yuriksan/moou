@@ -748,8 +748,8 @@ function truncate(text: string, max: number): string {
 function statusColor(status: string): string {
   if (status === 'completed' || status === 'active' || status === 'approved') return DECK.green;
   if (status === 'draft') return DECK.amber;
-  if (status === 'deferred') return DECK.red;
-  return DECK.textLight;
+  if (status === 'deferred' || status === 'archived') return DECK.red;
+  return DECK.textMuted;
 }
 
 /** Group customer motivations by name and sort by total revenue at risk descending. */
@@ -915,12 +915,15 @@ router.get('/timeline/pptx', async (_req, res) => {
     slideNumber: { x: 12.0, y: 7.1, w: 1.0, h: 0.3, fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted },
   });
 
-  // ─── Derive quarter from nearest milestone date ───
+  // ─── Derive quarter from nearest future milestone date ───
   function deriveQuarter(): string {
-    const dates = milestoneRows
+    const today = todayUTC();
+    const futureDates = milestoneRows
       .filter(ms => ms.status !== 'completed')
-      .map(ms => parseDateUTC(ms.targetDate));
-    const target = dates.length > 0 ? dates[0]! : new Date();
+      .map(ms => parseDateUTC(ms.targetDate))
+      .filter(d => d >= today)
+      .sort((a, b) => a.getTime() - b.getTime());
+    const target = futureDates.length > 0 ? futureDates[0]! : new Date();
     const q = Math.ceil((target.getUTCMonth() + 1) / 3);
     return `Q${q} ${target.getUTCFullYear()}`;
   }
@@ -1298,15 +1301,6 @@ router.get('/timeline/pptx', async (_req, res) => {
 
     if (futureMilestones.length > 0) {
       const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
-
-      // Group outcomes by milestone for avg score
-      const outcomesByMs = new Map<string, OutcomeRow[]>();
-      for (const o of outcomeRows) {
-        if (o.milestoneName) {
-          if (!outcomesByMs.has(o.milestoneName)) outcomesByMs.set(o.milestoneName, []);
-          outcomesByMs.get(o.milestoneName)!.push(o);
-        }
-      }
 
       slide.addText(`Planning Ahead \u00b7 ${futureMilestones.length} upcoming milestones`, {
         x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 22, fontFace: 'Calibri', color: DECK.textDark, bold: true,
