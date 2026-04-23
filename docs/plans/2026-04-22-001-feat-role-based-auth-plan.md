@@ -44,7 +44,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 
 **Steps**
 1. Implement login-gate logic in both OAuth callbacks. Emit `ACCESS_DENIED` redirect param on deny.
-2. Middleware-level status recheck; emit 401 with `error: 'ACCESS_REVOKED'`.
+2. Middleware-level status recheck; emit 401 with `{ error: { code: 'UNAUTHORIZED', message: 'Access revoked' } }`.
 3. Apply `requireWrite` to every mutation route. Audit list: tag CRUD (`api/src/routes/tags.ts`), milestone CRUD, outcome CRUD, comment CRUD, field-config CRUD (replace inline check at `api/src/routes/backend.ts:275-320`).
 
 **Exit**: integration tests: user with no row gets `ACCESS_DENIED`, revoked user gets 401 mid-session, viewer gets 403 on write routes, modifier can write but not hit admin routes.
@@ -69,7 +69,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 - `api/src/providers/adapter.ts:44-80` — extend `ProviderAdapter` interface.
 - `api/src/providers/github-adapter.ts` — implement via GitHub `/search/users`.
 - `api/src/providers/valueedge-adapter.ts` — implement via workspace users endpoint.
-- `api/src/routes/admin-users.ts` — add `GET /api/admin/directory` that calls `getAdapter().searchDirectory(...)`.
+- `api/src/routes/admin.ts` — add `GET /api/admin/directory` that calls `getAdapter().searchDirectory(...)`.
 
 **Steps**
 1. Add interface method + provider-user type.
@@ -85,8 +85,8 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 - `app/src/composables/useAuth.ts` (new) — `currentUser`, `isAdmin`, `canWrite`.
 - `app/src/App.vue:77-91` — populate `currentUser` from `/api/me`; wire header chip.
 - `app/src/App.vue:25-47` — `v-if="isAdmin"` on admin dropdown.
-- `app/src/router/index.ts` — `beforeEach` guard reading `meta.requiresRole`.
-- `app/src/composables/useApi.ts:64-67` — add 403 `ROLE_CHANGED` handler.
+- `app/src/router.ts` — `beforeEach` guard reading `meta.requiresRole`.
+- `app/src/composables/useApi.ts:64-67` — add 403 handler (check `error.code === 'FORBIDDEN'`, refetch `/api/me`).
 - `app/src/views/LoginView.vue:100-103` — render `ACCESS_DENIED` message.
 
 **Exit**: manual check in dev with three users (admin, modifier, viewer) — admin nav visible only to admin; guard redirects modifier/viewer from `/admin/*`.
@@ -106,7 +106,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 
 **Files**
 - `app/src/views/UserAdminView.vue` (new) — two-section page per spec §9.5.
-- `app/src/router/index.ts` — register route with `meta: { requiresRole: 'admin' }`.
+- `app/src/router.ts` — register route with `meta: { requiresRole: 'admin' }`.
 - `app/src/App.vue:25-47` — add nav entry.
 
 **Steps**
@@ -136,7 +136,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 | Admin PATCHes own role | 409 `CANNOT_MODIFY_SELF` |
 | Admin revokes configured admin | 409 `CONFIGURED_ADMIN_IMMUTABLE` |
 | Admin changes live user from modifier→viewer | Next write by that user → 403 + frontend re-fetches `/api/me` |
-| Admin revokes live user | Next request → 401 `ACCESS_REVOKED` |
+| Admin revokes live user | Next request → 401 `UNAUTHORIZED` |
 | Boot with empty/mismatched `ADMIN_USERS` | Server fails to start |
 
 ## Not in this plan
