@@ -235,7 +235,7 @@ watch([roleFilter, statusFilter], () => loadUsers());
       />
       <div v-if="directoryLoading" class="loading">Searching...</div>
       <div v-for="du in directoryResults" :key="du.providerId" class="directory-result">
-        <img v-if="du.avatarUrl" :src="du.avatarUrl" class="avatar-sm" />
+        <img v-if="du.avatarUrl" :src="du.avatarUrl" class="avatar-sm" alt="" />
         <div v-else class="avatar-sm avatar-placeholder">??</div>
         <div class="directory-info">
           <span class="directory-name">{{ du.name }}</span>
@@ -270,7 +270,7 @@ watch([roleFilter, statusFilter], () => loadUsers());
     <div class="user-list">
       <div v-for="user in users" :key="user.id" :class="['user-row', { revoked: user.status === 'revoked' }]">
         <div class="user-identity">
-          <img v-if="user.avatarUrl" :src="user.avatarUrl" class="avatar-sm" />
+          <img v-if="user.avatarUrl" :src="user.avatarUrl" class="avatar-sm" alt="" />
           <div v-else class="avatar-sm avatar-placeholder">{{ user.initials }}</div>
           <div class="user-info">
             <div class="user-name-line">

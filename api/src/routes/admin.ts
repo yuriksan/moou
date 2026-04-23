@@ -4,7 +4,9 @@ import { users, userAuditLog } from '../db/schema.js';
 import { eq, and, or, ilike, sql, desc } from 'drizzle-orm';
 import { requireAdmin } from '../middleware/authorize.js';
 import { configuredAdminIds } from '../auth/configured-admins.js';
-import { getAdapter } from '../providers/adapter.js';
+import { getAdapter } from '../providers/registry.js';
+import { ProviderAuthError } from '../providers/adapter.js';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
@@ -225,7 +227,15 @@ router.get('/users/:id/audit', async (req, res) => {
 
 // ─── GET /api/admin/directory ───
 // Search the active provider's user directory
-router.get('/directory', async (req, res) => {
+const directoryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many directory searches. Please slow down.' } },
+});
+
+router.get('/directory', directoryLimiter, async (req, res) => {
   const adapter = getAdapter();
   if (!adapter?.searchDirectory) {
     res.status(400).json({ error: { code: 'NOT_SUPPORTED', message: 'Provider does not support directory search' } });
@@ -246,7 +256,7 @@ router.get('/directory', async (req, res) => {
     const result = await adapter.searchDirectory(token, q, { cursor, limit });
     res.json(result);
   } catch (err: any) {
-    if (err.name === 'ProviderAuthError') {
+    if (err instanceof ProviderAuthError) {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: err.message } });
       return;
     }

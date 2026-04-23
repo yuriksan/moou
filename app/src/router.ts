@@ -55,7 +55,10 @@ const router = createRouter({
 // Route guard: redirect non-admins away from admin pages
 router.beforeEach((to) => {
   const requiredRole = to.meta.requiresRole as string | undefined;
-  if (requiredRole && currentUser.value?.role !== requiredRole) {
+  if (!requiredRole) return;
+  // Don't enforce until auth state is loaded
+  if (!currentUser.value) return;
+  if (currentUser.value.role !== requiredRole) {
     toast.error('You don\'t have access to that page.');
     return '/';
   }

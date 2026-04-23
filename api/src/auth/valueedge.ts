@@ -164,13 +164,16 @@ router.get('/valueedge/poll', async (req, res) => {
       // Non-fatal; user info is best-effort
     }
 
-    // Upsert user record
+    // Check if user exists and is allowed to log in (no auto-creation)
     const [existing] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (existing) {
-      await db.update(users).set({ name: userName }).where(eq(users.id, userId));
-    } else {
-      await db.insert(users).values({ id: userId, name: userName, initials, role: null, avatarUrl: null });
+    if (!existing || existing.status === 'revoked') {
+      // User not in DB or revoked — deny login
+      res.status(403).json({ error: { code: 'ACCESS_DENIED', message: 'Your account has not been granted access. Ask an administrator to add you.' } });
+      return;
     }
+
+    // Update profile fields from VE (name, initials, lastLoginAt)
+    await db.update(users).set({ name: userName, initials, lastLoginAt: new Date() }).where(eq(users.id, userId));
 
     // Persist the access token + user identity in the iron-session cookie
     const session = await getSession(req, res);

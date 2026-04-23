@@ -132,7 +132,6 @@ router.get('/callback', async (req, res) => {
   const [existing] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!existing || existing.status === 'revoked') {
     // User not in DB or revoked — deny login
-    const redirectTo = sanitizeRedirect(session.returnTo || '/');
     delete session.returnTo;
     delete session.oauthState;
     await session.save();

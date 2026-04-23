@@ -420,11 +420,12 @@ export class ValueEdgeAdapter implements ProviderAdapter {
 
     const limit = opts?.limit || 20;
     const offset = opts?.cursor ? Number(opts.cursor) : 0;
-    const filter = `"name EQ '*${query}*'"`;
+    const escaped = veEscape(query);
+    const filter = encodeURIComponent(`"name EQ '*${escaped}*'"`);
     const url = `${apiBase()}/workspace_users?query=${filter}&limit=${limit}&offset=${offset}&fields=id,name,email,phone1`;
 
     const res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', Cookie: `LWSSO_COOKIE_KEY=${token}` },
+      headers: headers(token),
     });
 
     if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);

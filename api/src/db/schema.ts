@@ -21,7 +21,7 @@ export const users = pgTable('users', {
   email: text('email'),
   initials: text('initials').notNull(),
   avatarUrl: text('avatar_url'),
-  createdBy: text('created_by'),
+  createdBy: text('created_by').references((): AnyPgColumn => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
 }, (table) => [
