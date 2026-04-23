@@ -410,6 +410,52 @@ router.patch('/:id/primary-link', async (req, res) => {
   res.json(updated);
 });
 
+// GET /outcomes/:id/sync-preview
+// Returns local vs. remote value for title and description without making any changes.
+router.get('/:id/sync-preview', async (req, res) => {
+  const [outcome] = await db.select().from(outcomes).where(eq(outcomes.id, req.params.id)).limit(1);
+  if (!outcome) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Outcome not found' } });
+    return;
+  }
+  if (!outcome.primaryLinkId) {
+    res.status(400).json({ error: { code: 'NO_PRIMARY_LINK', message: 'No primary item set' } });
+    return;
+  }
+
+  const [link] = await db.select().from(externalLinks).where(eq(externalLinks.id, outcome.primaryLinkId)).limit(1);
+  if (!link) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Primary link not found' } });
+    return;
+  }
+
+  // Refresh cached details if stale (older than 5 min)
+  const cached = link.cachedDetails as Record<string, unknown> | null;
+  const fetchedAt = cached?.fetchedAt as string | undefined;
+  const isStale = !fetchedAt || (Date.now() - new Date(fetchedAt).getTime() > 5 * 60 * 1000);
+  if (isStale && req.accessToken) {
+    try {
+      await refreshLink(link.id, req.accessToken);
+    } catch (err) {
+      if (err instanceof ProviderAuthError) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: (err as Error).message } });
+        return;
+      }
+    }
+    const [refreshed] = await db.select().from(externalLinks).where(eq(externalLinks.id, link.id)).limit(1);
+    if (refreshed) Object.assign(link, refreshed);
+  }
+
+  const details = link.cachedDetails as Record<string, unknown> | null;
+  const provider = getProvider();
+
+  res.json({
+    title: { local: outcome.title, remote: (details?.title as string | null) ?? null },
+    description: { local: outcome.description ?? null, remote: (details?.description as string | null) ?? null },
+    providerLabel: provider.label,
+  });
+});
+
 // POST /outcomes/:id/pull-primary
 // Overwrite the outcome's title or description with the cached value from the primary item.
 router.post('/:id/pull-primary', async (req, res) => {
