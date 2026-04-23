@@ -36,6 +36,7 @@ const router = createRouter({
       path: '/admin/tags',
       name: 'tag-admin',
       component: () => import('./views/TagAdminView.vue'),
+      meta: { requiresRole: 'admin' },
     },
     {
       path: '/admin/field-config',

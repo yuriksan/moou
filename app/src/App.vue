@@ -105,6 +105,7 @@ async function logout() {
     await api.logout();
   }
   authenticatedUser.value = null;
+  currentUser.value = null;
   router.push('/login');
 }
 

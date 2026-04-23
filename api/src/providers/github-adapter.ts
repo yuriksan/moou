@@ -159,7 +159,7 @@ export class GitHubAdapter implements ProviderAdapter {
     if (!query || query.length < 2) return { results: [] };
 
     const limit = opts?.limit || 20;
-    const page = opts?.cursor ? Number(opts.cursor) : 1;
+    const page = opts?.cursor ? (Number(opts.cursor) || 1) : 1;
     const params = new URLSearchParams({
       q: query,
       per_page: String(limit),

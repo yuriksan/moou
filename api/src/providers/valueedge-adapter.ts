@@ -419,7 +419,7 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     if (!query || query.length < 2) return { results: [] };
 
     const limit = opts?.limit || 20;
-    const offset = opts?.cursor ? Number(opts.cursor) : 0;
+    const offset = opts?.cursor ? (Number(opts.cursor) || 0) : 0;
     const escaped = veEscape(query);
     const filter = encodeURIComponent(`"name EQ '*${escaped}*'"`);
     const url = `${apiBase()}/workspace_users?query=${filter}&limit=${limit}&offset=${offset}&fields=id,name,email,phone1`;

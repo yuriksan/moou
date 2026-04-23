@@ -4,7 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware } from './middleware/auth.js';
-import { requireWrite, requireAdmin } from './middleware/authorize.js';
+import { requireWrite } from './middleware/authorize.js';
 import { db } from './db/index.js';
 import { motivationTypes, users } from './db/schema.js';
 import { eq } from 'drizzle-orm';
