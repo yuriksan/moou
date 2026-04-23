@@ -58,11 +58,13 @@ Today `role` is nullable free-text used as a job title (seeded "Director of Engi
 +  id: uuid('id').primaryKey().defaultRandom(),
 +  targetUserId: text('target_user_id').notNull().references(() => users.id),
 +  actorUserId: text('actor_user_id').notNull().references(() => users.id),
-+  action: text('action').notNull(),  // CHECK: 'granted','role_changed','revoked','restored'
++  action: text('action').notNull(),
 +  fromRole: text('from_role'),
 +  toRole: text('to_role'),
-+  at: timestamp('at').notNull().defaultNow(),
-+});
++  at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
++}, (table) => [
++  check('audit_action_check', sql`${table.action} IN ('granted', 'role_changed', 'revoked', 'restored')`),
++]);
 ```
 
 **Migration strategy** (drizzle-kit, three migrations — nullable → backfill → enforce):
@@ -135,7 +137,7 @@ export const requireAdmin = requireRole('admin');
 
 ## 7. User-management API
 
-All under `/api/admin/users`, all gated by `requireAdmin`.
+All under `/api/admin`, all gated by `requireAdmin`.
 
 | Method | Path                                             | Purpose                                                                 |
 |--------|--------------------------------------------------|-------------------------------------------------------------------------|
@@ -152,15 +154,15 @@ All under `/api/admin/users`, all gated by `requireAdmin`.
 - **`CANNOT_MODIFY_SELF`** — admins cannot change their own role or revoke themselves. Applies on PATCH and revoke regardless of whether other admins exist.
   ```ts
   if (targetId === req.user.id) {
-    return res.status(409).json({ error: 'CANNOT_MODIFY_SELF',
-      message: 'Admins cannot change or revoke their own role.' });
+    return res.status(409).json({ error: { code: 'CANNOT_MODIFY_SELF',
+      message: 'Admins cannot change or revoke their own role.' } });
   }
   ```
 - **`CONFIGURED_ADMIN_IMMUTABLE`** — users listed in `ADMIN_USERS` cannot be modified through the UI at all. Role dropdown, revoke, and restore all refuse.
   ```ts
   if (configuredAdminIds.has(targetId)) {
-    return res.status(409).json({ error: 'CONFIGURED_ADMIN_IMMUTABLE',
-      message: 'This user is configured via ADMIN_USERS and cannot be changed from the UI.' });
+    return res.status(409).json({ error: { code: 'CONFIGURED_ADMIN_IMMUTABLE',
+      message: 'This user is configured via ADMIN_USERS and cannot be changed from the UI.' } });
   }
   ```
   To change a configured admin, an operator edits `ADMIN_USERS` and restarts the server — same path as bootstrap, keeping the source of truth consistent.
@@ -274,8 +276,8 @@ Role badge in the user menu (existing avatar dropdown in `App.vue`).
 
 Admin demotes someone while they're using the app. Next API call returns 403 (write) or the middleware status recheck (§5) returns 401 (revoke). Add a global interceptor in `useApi.ts` next to the existing 401 handler (lines 64-67):
 
-- On 403 with `error: 'ROLE_CHANGED'` (or any unexpected 403 on a route that previously worked): refetch `/api/me`, update `currentUser`, show toast *"Your access level has changed."* — no forced logout, UI refreshes so affordances match reality.
-- On 401 with `error: 'ACCESS_REVOKED'`: existing session-expiry flow takes over, user lands on login with the access-denied message.
+- On 403 with `error.code === 'FORBIDDEN'` (or any unexpected 403 on a route that previously worked): refetch `/api/me`, update `currentUser`, show toast *"Your access level has changed."* — no forced logout, UI refreshes so affordances match reality.
+- On 401 with `error.code === 'UNAUTHORIZED'`: existing session-expiry flow takes over, user lands on login with the access-denied message.
 
 ### 9.8 Accessibility
 

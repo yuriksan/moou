@@ -8,7 +8,7 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 
 **Files**
 - `api/src/db/schema.ts:13-21` — rename `role` → `jobTitle`; add new `role` (text + CHECK constraint), `status` (text + CHECK), `email`, `createdAt`, `createdBy`, `lastLoginAt`; add `user_audit_log` table.
-- `api/drizzle/` — `drizzle-kit generate` produces a new migration.
+- `api/drizzle/` — three hand-written migrations (A: add nullable columns, B: backfill, C: enforce NOT NULL + CHECK).
 - `api/src/db/seed.ts:6-11` — update to populate both `jobTitle` and `role`.
 
 **Steps**
@@ -52,8 +52,8 @@ Companion to `docs/ROLE_BASED_AUTH.md`. Read the spec first — this plan is ord
 ## Phase 4 — User management API
 
 **Files**
-- `api/src/routes/admin-users.ts` (new) — all seven endpoints from spec §7.
-- `api/src/app.ts` — mount under `/api/admin/users`.
+- `api/src/routes/admin.ts` (new) — all endpoints from spec §7 (user management + directory search).
+- `api/src/app.ts` — mount under `/api/admin` (covers both `/api/admin/users/*` and `/api/admin/directory`).
 
 **Steps**
 1. Implement list with cursor pagination, `q`, `role`, `status` filters.
