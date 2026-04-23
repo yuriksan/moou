@@ -42,6 +42,7 @@ export class GitHubAdapter implements ProviderAdapter {
   name = 'github';
   label = 'GitHub';
   descriptionFormat = 'markdown' as const;
+  healthCheckIntervalMs = null; // GitHub OAuth tokens don't idle-expire
   entityTypes: ProviderEntityType[] = [
     { name: 'issue', label: 'Issue', default: true },
     { name: 'pr', label: 'Pull Request' },

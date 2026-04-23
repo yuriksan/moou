@@ -98,11 +98,23 @@ export class ValueEdgeAdapter implements ProviderAdapter {
   name = 'valueedge';
   label = 'OpenText ValueEdge';
   descriptionFormat = 'html' as const;
+  healthCheckIntervalMs = 30 * 60 * 1000; // 30 min — LWSSO token idles out after 3h
   entityTypes: ProviderEntityType[] = [
     { name: 'story', label: 'Story', default: true, parentEntityType: 'feature' },
     { name: 'feature', label: 'Feature', parentEntityType: 'epic' },
     { name: 'epic', label: 'Epic', parentEntityType: 'program' },
   ];
+
+  async checkConnection(token: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${apiBase()}/stories?limit=1&fields=id`, {
+        headers: headers(token),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
 
   async searchItems(token: string, query: string, entityType?: string): Promise<BackendItem[]> {
     const types: string[] = entityType && ENTITY_PATHS[entityType]
