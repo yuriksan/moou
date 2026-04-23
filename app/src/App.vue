@@ -5,6 +5,7 @@ import { api } from './composables/useApi';
 import { useSSE } from './composables/useSSE';
 import { toast } from './composables/useToast';
 import { currentUser, isAdmin } from './composables/useAuth';
+import { connectionState, startConnectionMonitor, stopConnectionMonitor } from './composables/useConnectionStatus';
 import Walkthrough from './components/Walkthrough.vue';
 import SearchBar from './components/SearchBar.vue';
 import Toast from './components/Toast.vue';
@@ -80,6 +81,7 @@ async function fetchMe() {
     const me = await api.getMe();
     authenticatedUser.value = me;
     currentUser.value = me;
+    startConnectionMonitor();
   } catch {
     router.push('/login');
     authChecked.value = true;
@@ -106,6 +108,7 @@ async function logout() {
   }
   authenticatedUser.value = null;
   currentUser.value = null;
+  stopConnectionMonitor();
   router.push('/login');
 }
 
@@ -154,6 +157,11 @@ const navItems = [
     </nav>
 
     <div class="topbar-right">
+      <span
+        v-if="connectionState !== 'idle'"
+        class="connection-status"
+        :title="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection...' : 'Backend disconnected — session may have expired'"
+      >{{ connectionState === 'connected' ? '🟢' : connectionState === 'checking' ? '🔵' : '🔴' }}</span>
       <SearchBar />
       <div v-if="isAdmin" class="admin-dropdown">
         <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙</button>
@@ -347,6 +355,7 @@ const navItems = [
 }
 .role-admin { background: var(--accent-dim, #e8f0eb); color: var(--accent, #4a7c59); }
 .role-viewer { background: #fef3cd; color: #856404; }
+.connection-status { font-size: 10px; cursor: default; line-height: 1; }
 .user-menu {
   position: absolute;
   top: 100%;

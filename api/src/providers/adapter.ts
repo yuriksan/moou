@@ -45,7 +45,12 @@ export interface ProviderAdapter {
   name: string;
   label: string;
   descriptionFormat: 'plain' | 'html' | 'markdown';
+  /** How often (ms) the frontend should poll connection health. null = no keepalive needed. */
+  healthCheckIntervalMs: number | null;
   entityTypes: ProviderEntityType[];
+
+  /** Lightweight connection check — returns true if the token is still valid. */
+  checkConnection?(token: string): Promise<boolean>;
 
   /** Search backend items by query string */
   searchItems(token: string, query: string, entityType?: string): Promise<BackendItem[]>;

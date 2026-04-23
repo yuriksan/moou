@@ -23,6 +23,7 @@ import backendRouter from './routes/backend.js';
 import adminRouter from './routes/admin.js';
 import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
+import { getAdapter } from './providers/registry.js';
 import { getSession } from './auth/session.js';
 import githubAuthRouter, { getAllowedOrigins } from './auth/github.js';
 import valueedgeAuthRouter from './auth/valueedge.js';
@@ -140,7 +141,11 @@ app.get('/healthz', (_req, res) => {
 // ─── Public info endpoint — returns the configured provider so the login
 //     page can show the correct sign-in flow before auth is established. ───
 app.get('/api/provider', (_req, res) => {
-  res.json(getProvider());
+  const adapter = getAdapter();
+  res.json({
+    ...getProvider(),
+    healthCheckIntervalMs: adapter?.healthCheckIntervalMs ?? null,
+  });
 });
 
 // ─── Serve frontend static files (before auth — no session required) ───
@@ -199,6 +204,25 @@ api.use('/admin', adminRouter);
 api.get('/motivation-types', async (_req, res) => {
   const types = await db.select().from(motivationTypes);
   res.json(types);
+});
+
+// ─── Provider connection health check ───
+// Lightweight endpoint the frontend polls to keep the provider token alive
+// and detect expiration proactively.
+api.get('/provider/health', async (req, res) => {
+  const adapter = getAdapter();
+  if (!adapter?.checkConnection) {
+    // Provider doesn't support health checks — always healthy
+    res.json({ connected: true });
+    return;
+  }
+  const token = req.accessToken;
+  if (!token) {
+    res.json({ connected: false });
+    return;
+  }
+  const connected = await adapter.checkConnection(token);
+  res.json({ connected });
 });
 
 app.use('/api', api);
