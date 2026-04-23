@@ -76,6 +76,15 @@ const descriptionOutOfSync = computed(() => {
 });
 const anyOutOfSync = computed(() => titleOutOfSync.value || descriptionOutOfSync.value);
 watch(anyOutOfSync, (val) => { if (!val) showSyncPanel.value = false; });
+const syncedAtLabel = computed(() => {
+  const raw = primaryCache.value?.fetchedAt as string | null | undefined;
+  if (!raw) return null;
+  const diff = Date.now() - new Date(raw).getTime();
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+});
 // All milestones, used so history entries can render `milestoneId` changes
 // as the milestone's actual name ("moved to Q3 Release") rather than a UUID.
 const milestoneNames = ref<Record<string, string>>({});
@@ -356,13 +365,8 @@ function timeAgo(dateStr: string): string {
           <div class="header-info">
             <div class="field-with-sync">
               <h2 class="detail-title font-display editable-field" title="Click to edit" @click="editing = true">{{ outcome.title }}</h2>
-              <template v-if="outcome.primaryLinkId">
-                <button v-if="titleOutOfSync" class="btn-sync btn-sync-alert" @click="openSyncPanel" title="Title differs from primary item — click to sync">⇅</button>
-                <template v-else>
-                  <button class="btn-sync" @click="pullField('title')" :disabled="syncingTitle" title="Pull title from primary item">↓</button>
-                  <button class="btn-sync" @click="pushField('title')" :disabled="syncingTitle" title="Push title to primary item">↑</button>
-                </template>
-              </template>
+              <button v-if="outcome.primaryLinkId && titleOutOfSync" class="btn-sync btn-sync-alert" @click="openSyncPanel" title="Title differs from primary item — click to sync">⇅</button>
+              <span v-else-if="outcome.primaryLinkId && syncedAtLabel" class="sync-ok-badge" :title="`In sync — last checked ${syncedAtLabel}`">✓</span>
             </div>
             <div class="header-meta">
               <span :class="['status-badge', `status-${outcome.status}`]" class="editable-field" title="Click to edit" @click="editing = true">{{ outcome.status }}</span>
@@ -442,13 +446,7 @@ function timeAgo(dateStr: string): string {
       <section v-else-if="outcome.description" class="section editable-section" @click="editing = true" title="Click to edit">
         <div class="section-title-row">
           <h3 class="section-title">Description</h3>
-          <template v-if="outcome.primaryLinkId">
-            <button v-if="descriptionOutOfSync" class="btn-sync btn-sync-alert" @click.stop="openSyncPanel" title="Description differs from primary item — click to sync">⇅</button>
-            <template v-else>
-              <button class="btn-sync" @click.stop="pullField('description')" :disabled="syncingDescription" title="Pull description from primary item">↓</button>
-              <button class="btn-sync" @click.stop="pushField('description')" :disabled="syncingDescription" title="Push description to primary item">↑</button>
-            </template>
-          </template>
+          <button v-if="outcome.primaryLinkId && descriptionOutOfSync" class="btn-sync btn-sync-alert" @click.stop="openSyncPanel" title="Description differs from primary item — click to sync">⇅</button>
         </div>
         <div v-if="outcome.descriptionFormat === 'html'" class="description description-html" v-html="sanitizedDescription" @click="(e) => { if ((e.target as HTMLElement).closest('a')) e.stopPropagation(); }" />
         <div v-else class="description">{{ outcome.description }}</div>
@@ -729,6 +727,7 @@ function timeAgo(dateStr: string): string {
 .btn-sync:disabled { opacity: 0.3; cursor: default; }
 .btn-sync-alert { border-color: var(--amber, #c07a1a); color: var(--amber, #c07a1a); }
 .btn-sync-alert:hover { background: color-mix(in srgb, var(--amber, #c07a1a) 10%, transparent); }
+.sync-ok-badge { font-size: 11px; color: var(--green, #3a9b6a); cursor: default; flex-shrink: 0; }
 
 .description-sync-hint {
   display: flex; align-items: center; justify-content: space-between;
