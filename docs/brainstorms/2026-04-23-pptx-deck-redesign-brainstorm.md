@@ -18,7 +18,7 @@ The current deck (PR #5) established the right content — KPI cards, charts, ri
 - **Two-act narrative**: Act 1 = delivery execution (are we on track?), Act 2 = strategic direction (is the plan right?). Appendix for detail.
 - **Takeaway titles**: Every slide title states the conclusion, not the topic. Generated from data.
 - **Swimlane timeline**: Horizontal tracks per milestone with outcomes as blocks, replacing point markers.
-- **7 main slides + appendix**: Down from ~16. Fewer, denser, more intentional.
+- **8 main slides + appendix**: Down from ~16. Fewer, denser, more intentional.
 - **Visual design system**: Dark gradient title, accent stripe on every slide, slide numbers, consistent typography (sans-serif headers, smaller body), branded color palette.
 - **Phased delivery**:
   - **Phase A (now)**: Visual redesign + narrative restructure with templated text
