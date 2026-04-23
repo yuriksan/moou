@@ -43,7 +43,7 @@ router.get('/users', async (req, res) => {
 
   const hasMore = rows.length > limit;
   const data = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? data[data.length - 1].id : undefined;
+  const nextCursor = hasMore ? data[data.length - 1]!.id : undefined;
 
   // Tag configured admins
   const result = data.map(u => ({

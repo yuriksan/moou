@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { currentUser } from '../composables/useAuth';
 import { toast } from '../composables/useToast';
+import { request } from '../composables/useApi';
 
 interface UserRow {
   id: string;
@@ -47,6 +48,7 @@ const directoryQuery = ref('');
 const directoryResults = ref<DirectoryUser[]>([]);
 const directoryLoading = ref(false);
 const addingUserId = ref<string | null>(null);
+const newUserRole = ref('viewer');
 
 // Audit drawer
 const auditUserId = ref<string | null>(null);
@@ -63,19 +65,14 @@ async function loadUsers(append = false) {
     if (statusFilter.value) params.set('status', statusFilter.value);
     if (append && nextCursor.value) params.set('cursor', nextCursor.value);
 
-    const res = await fetch(`/api/admin/users?${params}`, { credentials: 'include', headers: { 'X-User-Id': currentUser.value?.id || '' } });
-    if (!res.ok) throw new Error('Failed to load users');
-    const data = await res.json();
-
+    const data = await request<{ data: UserRow[]; nextCursor?: string }>(`/admin/users?${params}`);
     if (append) {
       users.value.push(...data.data);
     } else {
       users.value = data.data;
     }
     nextCursor.value = data.nextCursor;
-  } catch (err: any) {
-    toast.error(err.message);
-  } finally {
+  } catch { /* request() already toasted */ } finally {
     loading.value = false;
   }
 }
@@ -87,78 +84,40 @@ function onSearchInput() {
 
 async function changeRole(user: UserRow, newRole: string) {
   try {
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+    const updated = await request<UserRow>(`/admin/users/${encodeURIComponent(user.id)}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.value?.id || '' },
-      credentials: 'include',
       body: JSON.stringify({ role: newRole }),
     });
-    if (!res.ok) {
-      const err = await res.json();
-      toast.error(err.error?.message || 'Failed to change role');
-      return;
-    }
-    const updated = await res.json();
     const idx = users.value.findIndex(u => u.id === user.id);
     if (idx >= 0) users.value[idx] = updated;
     toast.success(`${user.name} is now ${newRole}`);
-  } catch (err: any) {
-    toast.error(err.message);
-  }
+  } catch { /* request() already toasted */ }
 }
 
 async function revokeUser(user: UserRow) {
   if (!confirm(`Revoke access for ${user.name}? They will be logged out on their next request.`)) return;
   try {
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/revoke`, {
-      method: 'POST',
-      headers: { 'X-User-Id': currentUser.value?.id || '' },
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      toast.error(err.error?.message || 'Failed to revoke');
-      return;
-    }
-    const updated = await res.json();
+    const updated = await request<UserRow>(`/admin/users/${encodeURIComponent(user.id)}/revoke`, { method: 'POST' });
     const idx = users.value.findIndex(u => u.id === user.id);
     if (idx >= 0) users.value[idx] = updated;
     toast.success(`${user.name} has been revoked`);
-  } catch (err: any) {
-    toast.error(err.message);
-  }
+  } catch { /* request() already toasted */ }
 }
 
 async function restoreUser(user: UserRow) {
   try {
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/restore`, {
-      method: 'POST',
-      headers: { 'X-User-Id': currentUser.value?.id || '' },
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      toast.error(err.error?.message || 'Failed to restore');
-      return;
-    }
-    const updated = await res.json();
+    const updated = await request<UserRow>(`/admin/users/${encodeURIComponent(user.id)}/restore`, { method: 'POST' });
     const idx = users.value.findIndex(u => u.id === user.id);
     if (idx >= 0) users.value[idx] = updated;
     toast.success(`${user.name} has been restored`);
-  } catch (err: any) {
-    toast.error(err.message);
-  }
+  } catch { /* request() already toasted */ }
 }
 
 async function openAudit(userId: string) {
   auditUserId.value = userId;
   auditEntries.value = [];
   try {
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/audit`, {
-      credentials: 'include',
-      headers: { 'X-User-Id': currentUser.value?.id || '' },
-    });
-    if (res.ok) auditEntries.value = await res.json();
+    auditEntries.value = await request<AuditEntry[]>(`/admin/users/${encodeURIComponent(userId)}/audit`, { silent: true });
   } catch { /* ignore */ }
 }
 
@@ -166,15 +125,9 @@ async function searchDirectory() {
   if (directoryQuery.value.length < 2) { directoryResults.value = []; return; }
   directoryLoading.value = true;
   try {
-    const res = await fetch(`/api/admin/directory?q=${encodeURIComponent(directoryQuery.value)}`, {
-      credentials: 'include',
-      headers: { 'X-User-Id': currentUser.value?.id || '' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      directoryResults.value = data.results || [];
-    }
-  } catch { /* ignore */ } finally {
+    const data = await request<{ results: DirectoryUser[] }>(`/admin/directory?q=${encodeURIComponent(directoryQuery.value)}`);
+    directoryResults.value = data.results || [];
+  } catch { /* request() already toasted */ } finally {
     directoryLoading.value = false;
   }
 }
@@ -187,26 +140,16 @@ function isAlreadyAdded(providerId: string): UserRow | undefined {
 async function addUser(du: DirectoryUser, role: string) {
   addingUserId.value = du.providerId;
   try {
-    const res = await fetch('/api/admin/users', {
+    const created = await request<UserRow>('/admin/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.value?.id || '' },
-      credentials: 'include',
       body: JSON.stringify({ providerId: du.providerId, name: du.name, email: du.email, avatarUrl: du.avatarUrl, role }),
     });
-    if (!res.ok) {
-      const err = await res.json();
-      toast.error(err.error?.message || 'Failed to add user');
-      return;
-    }
-    const created = await res.json();
     users.value.unshift(created);
     toast.success(`${du.name} added as ${role}`);
     showAddUser.value = false;
     directoryQuery.value = '';
     directoryResults.value = [];
-  } catch (err: any) {
-    toast.error(err.message);
-  } finally {
+  } catch { /* request() already toasted */ } finally {
     addingUserId.value = null;
   }
 }
@@ -227,17 +170,30 @@ watch([roleFilter, statusFilter], () => loadUsers());
 
     <!-- Add user panel -->
     <div v-if="showAddUser" class="add-user-panel">
-      <h3>Search provider directory</h3>
+      <div class="add-user-header">
+        <div>
+          <h3>Add a New User</h3>
+          <p class="add-user-hint">Search the provider directory by name or email, then choose a role before adding.</p>
+        </div>
+        <div class="add-user-role-wrap">
+          <label class="add-role-label">Role to assign</label>
+          <select v-model="newUserRole" class="input add-role-select">
+            <option value="viewer">Viewer</option>
+            <option value="modifier">Modifier</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
       <input
         v-model="directoryQuery"
         class="input"
-        placeholder="Search by name or handle..."
+        placeholder="Search by name or email..."
         @input="searchDirectory"
       />
       <div v-if="directoryLoading" class="loading">Searching...</div>
       <div v-for="du in directoryResults" :key="du.providerId" class="directory-result">
         <img v-if="du.avatarUrl" :src="du.avatarUrl" class="avatar-sm" alt="" />
-        <div v-else class="avatar-sm avatar-placeholder">??</div>
+        <div v-else class="avatar-sm avatar-placeholder">{{ du.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() }}</div>
         <div class="directory-info">
           <span class="directory-name">{{ du.name }}</span>
           <span v-if="du.handle" class="directory-handle">@{{ du.handle }}</span>
@@ -247,7 +203,9 @@ watch([roleFilter, statusFilter], () => loadUsers());
           <span class="already-badge">Already added ({{ isAlreadyAdded(du.providerId)!.role }})</span>
         </template>
         <template v-else>
-          <button class="btn btn-sm" @click="addUser(du, 'modifier')" :disabled="addingUserId === du.providerId">Add as modifier</button>
+          <button class="btn btn-sm btn-primary" @click="addUser(du, newUserRole)" :disabled="addingUserId === du.providerId">
+            {{ addingUserId === du.providerId ? 'Adding…' : 'Add' }}
+          </button>
         </template>
       </div>
     </div>
@@ -268,6 +226,12 @@ watch([roleFilter, statusFilter], () => loadUsers());
     </div>
 
     <!-- User list -->
+    <div class="users-header">
+      <span class="uh-user">User</span>
+      <span class="uh-role">Role</span>
+      <span class="uh-login">Last Login</span>
+      <span class="uh-actions"></span>
+    </div>
     <div class="user-list">
       <div v-for="user in users" :key="user.id" :class="['user-row', { revoked: user.status === 'revoked' }]">
         <div class="user-identity">
@@ -283,24 +247,21 @@ watch([roleFilter, statusFilter], () => loadUsers());
           </div>
         </div>
 
+        <select
+          :value="user.role"
+          @change="changeRole(user, ($event.target as HTMLSelectElement).value)"
+          class="input role-select"
+          :disabled="user.id === currentUser?.id || user.isConfiguredAdmin"
+          :title="user.id === currentUser?.id ? 'You can\'t change your own role' : user.isConfiguredAdmin ? 'Configured via ADMIN_USERS' : ''"
+        >
+          <option value="admin">Admin</option>
+          <option value="modifier">Modifier</option>
+          <option value="viewer">Viewer</option>
+        </select>
+
+        <span class="last-login">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : 'Never' }}</span>
+
         <div class="user-actions">
-          <!-- Role dropdown -->
-          <select
-            :value="user.role"
-            @change="changeRole(user, ($event.target as HTMLSelectElement).value)"
-            class="input role-select"
-            :disabled="user.id === currentUser?.id || user.isConfiguredAdmin"
-            :title="user.id === currentUser?.id ? 'You can\'t change your own role' : user.isConfiguredAdmin ? 'Configured via ADMIN_USERS' : ''"
-          >
-            <option value="admin">Admin</option>
-            <option value="modifier">Modifier</option>
-            <option value="viewer">Viewer</option>
-          </select>
-
-          <!-- Last login -->
-          <span class="last-login">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : 'Never' }}</span>
-
-          <!-- Actions -->
           <button
             v-if="user.status === 'active'"
             class="btn btn-sm btn-danger"
@@ -314,7 +275,6 @@ watch([roleFilter, statusFilter], () => loadUsers());
             @click="restoreUser(user)"
             :disabled="user.isConfiguredAdmin"
           >Restore</button>
-
           <button class="btn btn-sm" @click="openAudit(user.id)" title="View audit log">Audit</button>
         </div>
       </div>
@@ -348,11 +308,33 @@ watch([roleFilter, statusFilter], () => loadUsers());
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .page-title { font-size: 22px; font-weight: 700; }
 
+.input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  color: var(--text-0);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.input:focus { border-color: var(--accent); }
+
 .add-user-panel {
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; margin-bottom: 20px;
 }
-.add-user-panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.add-user-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; margin-bottom: 12px;
+}
+.add-user-header h3 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.add-user-hint { font-size: 12px; color: var(--text-2); }
+.add-user-role-wrap { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex-shrink: 0; }
+.add-role-label { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+.add-role-select { width: 130px; }
+.add-user-panel > .input { width: 100%; max-width: 400px; margin-bottom: 10px; }
 .directory-result {
   display: flex; align-items: center; gap: 10px; padding: 8px 0;
   border-bottom: 1px solid var(--border-subtle);
@@ -376,15 +358,31 @@ watch([roleFilter, statusFilter], () => loadUsers());
 }
 .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+.users-header {
+  display: grid;
+  grid-template-columns: 1fr 130px 90px 110px;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 10px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 1px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+}
+.uh-role { text-align: center; }
+.uh-login { text-align: center; }
+
 .user-list { display: flex; flex-direction: column; gap: 2px; }
 .user-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 12px; border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: 1fr 130px 90px 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px; border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
 }
 .user-row.revoked { opacity: 0.55; }
-.user-identity { display: flex; align-items: center; gap: 10px; }
-.avatar-sm { width: 32px; height: 32px; border-radius: 50%; }
+.user-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.avatar-sm { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 .avatar-placeholder {
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-3); color: var(--text-2); font-size: 11px; font-weight: 700;
@@ -402,9 +400,9 @@ watch([roleFilter, statusFilter], () => loadUsers());
   background: #fee2e2; color: #991b1b; font-weight: 600;
 }
 
-.user-actions { display: flex; align-items: center; gap: 8px; }
-.role-select { width: 110px; font-size: 12px; padding: 4px 6px; }
-.last-login { font-size: 11px; color: var(--text-2); min-width: 70px; text-align: center; }
+.role-select { width: 100%; font-size: 12px; padding: 4px 8px; text-align: center; }
+.last-login { font-size: 11px; color: var(--text-2); text-align: center; }
+.user-actions { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
 
 .btn-danger { background: #dc2626; color: #fff; border-color: #dc2626; }
 .btn-danger:hover { background: #b91c1c; }
