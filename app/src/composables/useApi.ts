@@ -15,7 +15,7 @@ export interface RequestOptions extends RequestInit {
   silent?: boolean;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { silent = false, ...fetchOptions } = options;
 
   const headers: Record<string, string> = {

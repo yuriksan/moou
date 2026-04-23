@@ -421,8 +421,8 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     const limit = opts?.limit || 20;
     const offset = opts?.cursor ? (Number(opts.cursor) || 0) : 0;
     const escaped = veEscape(query);
-    const filter = encodeURIComponent(`"name EQ '*${escaped}*'"`);
-    const url = `${apiBase()}/workspace_users?query=${filter}&limit=${limit}&offset=${offset}&fields=id,name,email,phone1`;
+    const filter = encodeURIComponent(`"name='*${escaped}*' || full_name='*${escaped}*'"`);
+    const url = `${apiBase()}/workspace_users?query=${filter}&limit=${limit}&offset=${offset}&fields=id,full_name,first_name,last_name,email`;
 
     const res = await fetch(url, {
       headers: headers(token),
@@ -433,11 +433,10 @@ export class ValueEdgeAdapter implements ProviderAdapter {
 
     const data = await res.json() as { data?: any[]; total_count?: number };
     const items = data.data || [];
-    const results = items.map((u: any) => ({
-      providerId: String(u.id),
-      name: u.name || String(u.id),
-      email: u.email || undefined,
-    }));
+    const results = items.map((u: any) => {
+      const name = u.full_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || String(u.id);
+      return { providerId: String(u.id), name, email: u.email || undefined };
+    });
 
     const total = data.total_count || 0;
     const nextOffset = offset + limit;
