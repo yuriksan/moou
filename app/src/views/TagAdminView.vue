@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { api } from '../composables/useApi';
+import EmojiPicker from '../components/EmojiPicker.vue';
 
 const tags = ref<any[]>([]);
 const editingId = ref<string | null>(null);
@@ -41,7 +42,7 @@ async function deleteTag(tag: any) {
     <div class="tag-list">
       <div v-for="tag in tags" :key="tag.id" class="tag-row">
         <template v-if="editingId === tag.id">
-          <input v-model="editForm.emoji" class="input emoji-input" maxlength="2" />
+          <EmojiPicker v-model="editForm.emoji" />
           <input v-model="editForm.name" class="input name-input" @keyup.enter="saveEdit" />
           <input v-model="editForm.colour" type="color" class="colour-input" />
           <input v-model="editForm.description" class="input desc-input" placeholder="Description" />
@@ -106,7 +107,6 @@ async function deleteTag(tag: any) {
   background: var(--bg-1); color: var(--text-0); outline: none;
 }
 .input:focus { border-color: var(--accent); }
-.emoji-input { width: 36px; text-align: center; }
 .name-input { width: 140px; }
 .desc-input { flex: 1; }
 .colour-input { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; padding: 0; }

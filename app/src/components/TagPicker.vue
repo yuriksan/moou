@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { api } from '../composables/useApi';
+import EmojiPicker from './EmojiPicker.vue';
 
 const props = defineProps<{
   modelValue: string[];
@@ -12,17 +13,8 @@ const emit = defineEmits<{
 
 const tags = ref<any[]>([]);
 const showCreate = ref(false);
-const showEmojiPicker = ref(false);
 const newTag = ref({ name: '', emoji: '', colour: '#2a7ac8' });
 const creating = ref(false);
-
-const EMOJI_OPTIONS = [
-  // Common tag emojis
-  '🏷️', '📦', '🔒', '💰', '🏗️', '📋', '🌍', '🚀',
-  '⚡', '🔧', '🐛', '✨', '🎯', '📊', '🔥', '⏰',
-  '👥', '🏢', '🌐', '📱', '💡', '🎨', '📈', '🛡️',
-  '⚠️', '🧪', '📝', '🔗', '💎', '🏆', '📌', '🗓️',
-];
 
 onMounted(async () => {
   tags.value = await api.getTags();
@@ -36,11 +28,6 @@ function toggle(tagId: string) {
   emit('update:modelValue', ids);
 }
 
-function selectEmoji(emoji: string) {
-  newTag.value.emoji = emoji;
-  showEmojiPicker.value = false;
-}
-
 async function createTag() {
   if (!newTag.value.name.trim()) return;
   creating.value = true;
@@ -50,7 +37,6 @@ async function createTag() {
     emit('update:modelValue', [...props.modelValue, tag.id]);
     newTag.value = { name: '', emoji: '', colour: '#2a7ac8' };
     showCreate.value = false;
-    showEmojiPicker.value = false;
   } catch { /* error surfaced via toast by useApi */ } finally {
     creating.value = false;
   }
@@ -69,23 +55,11 @@ async function createTag() {
     <button v-if="!showCreate" class="tag create-tag" @click="showCreate = true">+ new</button>
 
     <div v-if="showCreate" class="create-form">
-      <div class="emoji-picker-wrap">
-        <button class="emoji-btn" @click="showEmojiPicker = !showEmojiPicker" :title="newTag.emoji || 'Pick emoji'">
-          {{ newTag.emoji || '🏷️' }}
-        </button>
-        <div v-if="showEmojiPicker" class="emoji-grid">
-          <button
-            v-for="emoji in EMOJI_OPTIONS" :key="emoji"
-            class="emoji-option"
-            :class="{ selected: newTag.emoji === emoji }"
-            @click="selectEmoji(emoji)"
-          >{{ emoji }}</button>
-        </div>
-      </div>
+      <EmojiPicker v-model="newTag.emoji" />
       <input v-model="newTag.name" class="input name-input" placeholder="Tag name" @keyup.enter="createTag" />
       <input v-model="newTag.colour" type="color" class="colour-input" />
       <button class="btn btn-sm btn-primary" @click="createTag" :disabled="creating">Add</button>
-      <button class="btn btn-sm" @click="showCreate = false; showEmojiPicker = false">×</button>
+      <button class="btn btn-sm" @click="showCreate = false">×</button>
     </div>
   </div>
 </template>
@@ -106,28 +80,4 @@ async function createTag() {
 .input:focus { border-color: var(--accent); }
 .name-input { flex: 1; }
 .colour-input { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; padding: 0; }
-
-/* Emoji picker */
-.emoji-picker-wrap { position: relative; }
-.emoji-btn {
-  width: 32px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--bg-1); cursor: pointer; font-size: 16px; display: flex;
-  align-items: center; justify-content: center; transition: all var(--transition);
-}
-.emoji-btn:hover { border-color: var(--accent); }
-
-.emoji-grid {
-  position: absolute; bottom: 100%; left: 0; margin-bottom: 4px;
-  background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 6px; z-index: 50;
-  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
-  width: 260px;
-}
-.emoji-option {
-  width: 28px; height: 28px; border: none; background: none; cursor: pointer;
-  border-radius: var(--radius-sm); font-size: 14px; display: flex;
-  align-items: center; justify-content: center; transition: background var(--transition);
-}
-.emoji-option:hover { background: var(--bg-hover); }
-.emoji-option.selected { background: var(--accent-dim); }
 </style>
