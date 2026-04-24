@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { api } from './useApi';
 
-export type ConnectionState = 'connected' | 'checking' | 'disconnected' | 'idle';
+export type ConnectionState = 'connected' | 'checking' | 'disconnected' | 'auth_expired' | 'idle';
 
 export const connectionState = ref<ConnectionState>('idle');
 
@@ -46,6 +46,11 @@ export async function checkNow() {
   try {
     const res = await fetch(`${BASE}/provider/health`, { credentials: 'include', cache: 'no-store' });
     if (stopped) return; // monitor was stopped while request was in-flight
+    if (res.status === 401) {
+      // Token has expired — signal auth_expired so App.vue can redirect to login
+      connectionState.value = 'auth_expired';
+      return;
+    }
     if (!res.ok) {
       connectionState.value = 'disconnected';
       return;
@@ -54,6 +59,7 @@ export async function checkNow() {
     if (stopped) return;
     connectionState.value = data.connected ? 'connected' : 'disconnected';
   } catch {
+    // Network error — don't treat as auth failure
     if (!stopped) connectionState.value = 'disconnected';
   }
 }

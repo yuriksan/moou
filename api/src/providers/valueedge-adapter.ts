@@ -110,8 +110,10 @@ export class ValueEdgeAdapter implements ProviderAdapter {
       const res = await fetch(`${apiBase()}/stories?limit=1&fields=id`, {
         headers: headers(token),
       });
+      if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
       return res.ok;
-    } catch {
+    } catch (err) {
+      if (err instanceof VEAuthError) throw err;
       return false;
     }
   }
@@ -453,5 +455,15 @@ export class ValueEdgeAdapter implements ProviderAdapter {
     const total = data.total_count || 0;
     const nextOffset = offset + limit;
     return { results, nextCursor: nextOffset < total ? String(nextOffset) : undefined };
+  }
+
+  async fetchUserAvatar(token: string, providerId: string): Promise<{ data: Buffer; contentType: string } | null> {
+    const url = `${apiBase()}/workspace_users/${encodeURIComponent(providerId)}/avatar?size=small`;
+    const res = await fetch(url, { headers: headers(token) });
+    if (res.status === 401 || res.status === 403) throw new VEAuthError(res.status);
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const data = Buffer.from(await res.arrayBuffer());
+    return { data, contentType };
   }
 }

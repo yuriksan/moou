@@ -17,7 +17,22 @@ const route = useRoute();
 const { on } = useSSE();
 on('session_expired', () => {
   toast.error('Your session has expired. Please sign in again.', { title: 'Session expired' });
+  authenticatedUser.value = null;
+  currentUser.value = null;
+  stopConnectionMonitor();
   router.push('/login');
+});
+
+// Also redirect when the health monitor detects an expired token (HTTP 401 from /provider/health).
+// Network errors stay as 'disconnected' and do NOT trigger a redirect.
+watch(connectionState, (state) => {
+  if (state === 'auth_expired' && route.path !== '/login') {
+    toast.error('Your session has expired. Please sign in again.', { title: 'Session expired' });
+    stopConnectionMonitor();
+    authenticatedUser.value = null;
+    currentUser.value = null;
+    router.push('/login');
+  }
 });
 
 const routeTitles: Record<string, string> = {
@@ -157,14 +172,6 @@ const navItems = [
     </nav>
 
     <div class="topbar-right">
-      <span
-        v-if="connectionState !== 'idle'"
-        class="connection-status"
-        role="img"
-        :aria-label="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection' : 'Backend disconnected — session may have expired'"
-        :title="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection...' : 'Backend disconnected — session may have expired'"
-        tabindex="0"
-      >{{ connectionState === 'connected' ? '🟢' : connectionState === 'checking' ? '🔵' : '🔴' }}</span>
       <SearchBar />
       <div v-if="isAdmin" class="admin-dropdown">
         <button class="help-btn" @click="showAdminMenu = !showAdminMenu" title="Admin">⚙</button>
@@ -177,15 +184,24 @@ const navItems = [
       <button class="help-btn" @click="showWalkthrough = true" title="Help & walkthrough">?</button>
       <!-- Authenticated user (GitHub or ValueEdge) -->
       <div v-if="authenticatedUser" class="user-switcher" @click="showUserMenu = !showUserMenu">
-        <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" />
-        <div v-else class="avatar">{{ authenticatedUser.initials }}</div>
-        <span class="user-name">{{ authenticatedUser.name }}</span>
-        <span v-if="currentUser?.role === 'admin'" class="role-badge role-admin">Admin</span>
-        <span v-else-if="currentUser?.role === 'viewer'" class="role-badge role-viewer">Read-only</span>
+        <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" @error="($event.target as HTMLImageElement).style.display='none'; ($event.target as HTMLImageElement).nextElementSibling?.removeAttribute('hidden')" alt="" />
+        <div :hidden="!!authenticatedUser.avatarUrl" class="avatar">{{ authenticatedUser.initials }}</div>
+        <div class="user-info">
+          <span class="user-name">{{ authenticatedUser.name }}</span><span v-if="currentUser?.role === 'admin'" class="role-label role-admin"> · Admin</span><span v-else-if="currentUser?.role === 'viewer'" class="role-label role-viewer"> · Read-only</span>
+        </div>
         <div v-if="showUserMenu" class="user-menu">
           <div class="user-menu-item" @click.stop="logout">Sign out</div>
         </div>
       </div>
+      <!-- Connection health — rightmost, least intrusive position -->
+      <span
+        v-if="connectionState !== 'idle'"
+        class="connection-status"
+        role="img"
+        :aria-label="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection' : connectionState === 'auth_expired' ? 'Session expired' : 'Backend unreachable'"
+        :title="connectionState === 'connected' ? 'Backend connected' : connectionState === 'checking' ? 'Checking connection...' : connectionState === 'auth_expired' ? 'Session expired — redirecting to login' : 'Backend unreachable (network error)'"
+        tabindex="0"
+      >{{ connectionState === 'connected' ? '🟢' : connectionState === 'checking' ? '🔵' : '🔴' }}</span>
     </div>
   </header>
 
@@ -311,53 +327,30 @@ const navItems = [
   transition: background var(--transition);
 }
 .user-switcher:hover { background: var(--bg-hover); }
-
-.avatar-img {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+.avatar-img { width: 28px; height: 28px; border-radius: 50%; }
 .avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--teal));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: 50%; background: var(--bg-3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--text-2);
 }
-.avatar-sm {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--bg-3);
+
+.user-info {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-1);
+  align-items: baseline;
+  white-space: nowrap;
+  line-height: 1;
 }
 .user-name {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-1);
 }
-.role-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.role-label {
+  font-size: 11px;
+  font-weight: 400;
 }
-.role-admin { background: var(--accent-dim, #e8f0eb); color: var(--accent, #4a7c59); }
-.role-viewer { background: #fef3cd; color: #856404; }
+.role-admin { color: var(--accent, #4a7c59); }
+.role-viewer { color: #856404; }
 .connection-status { font-size: 10px; cursor: default; line-height: 1; }
 .user-menu {
   position: absolute;
