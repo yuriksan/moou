@@ -226,6 +226,7 @@ router.get('/valueedge/poll', async (req, res) => {
             await tx.insert(users).values({ ...emailStub, id: userId, providerId: resolvedVeId! });
             // Update all FK references from old id to new id
             await tx.execute(sql`UPDATE outcomes SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE motivations SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
             await tx.execute(sql`UPDATE milestones SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
             await tx.execute(sql`UPDATE comments SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
             await tx.execute(sql`UPDATE outcome_motivations SET created_by = ${userId} WHERE created_by = ${emailUserId}`);

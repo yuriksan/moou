@@ -327,6 +327,12 @@ const navItems = [
   transition: background var(--transition);
 }
 .user-switcher:hover { background: var(--bg-hover); }
+.avatar-img { width: 28px; height: 28px; border-radius: 50%; }
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--bg-3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--text-2);
+}
 
 .user-info {
   display: flex;
