@@ -24,6 +24,7 @@ import adminRouter from './routes/admin.js';
 import { sseHandler } from './sse/emitter.js';
 import { getProvider } from './providers.js';
 import { getAdapter } from './providers/registry.js';
+import { ProviderAuthError } from './providers/adapter.js';
 import { getSession } from './auth/session.js';
 import githubAuthRouter, { getAllowedOrigins } from './auth/github.js';
 import valueedgeAuthRouter from './auth/valueedge.js';
@@ -201,6 +202,30 @@ api.use('/export', exportRouter);
 api.use('/import', importRouter);
 api.use('/admin', adminRouter);
 
+// ─── Avatar proxy — streams provider profile pictures through authenticated backend ───
+// Provider avatars require auth, so we proxy through the adapter rather than
+// exposing raw provider URLs to the browser.
+api.get('/users/:userId/avatar', async (req, res) => {
+  const { userId } = req.params;
+  const token = req.accessToken;
+  const adapter = getAdapter();
+  if (!token || !adapter?.fetchUserAvatar) { res.status(404).end(); return; }
+
+  const [user] = await db.select({ providerId: users.providerId }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user?.providerId) { res.status(404).end(); return; }
+
+  try {
+    const result = await adapter.fetchUserAvatar(token, user.providerId);
+    if (!result) { res.status(404).end(); return; }
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(result.data);
+  } catch (err) {
+    if (err instanceof ProviderAuthError) { res.status(401).end(); return; }
+    res.status(502).end();
+  }
+});
+
 api.get('/motivation-types', async (_req, res) => {
   const types = await db.select().from(motivationTypes);
   res.json(types);
@@ -224,7 +249,15 @@ api.get('/provider/health', (_req, res, next) => {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } });
     return;
   }
-  const connected = await adapter.checkConnection(token);
+  const connected = await adapter.checkConnection(token)
+      .catch((err) => {
+        if (err instanceof ProviderAuthError) {
+          res.status(401).json({ error: { code: 'AUTH_EXPIRED', message: 'Provider token expired' } });
+          return null;
+        }
+        throw err;
+      });
+  if (connected === null) return; // already responded
   res.json({ connected });
 });
 

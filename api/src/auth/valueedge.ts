@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { getSession } from './session.js';
+import { configuredAdminIds } from './configured-admins.js';
 
 const router = Router();
 
@@ -145,35 +146,111 @@ router.get('/valueedge/poll', async (req, res) => {
     // Default to the login username — better than "ValueEdge User"
     let userName = veUserName;
     let initials = (veUserName.split('@')[0] ?? veUserName).slice(0, 2).toUpperCase();
-    let userId = `valueedge:${veUserName}`;
+    // emailUserId is our initial best guess — may be replaced by a numeric VE id below
+    const emailUserId = `valueedge:${veUserName}`;
+    let userId = emailUserId;
+    let resolvedDisplayName = false;
+    let resolvedVeId: string | undefined; // numeric/canonical id returned by workspace_users
 
+    const veHeaders = { 'Cookie': `${cookieName}=${lwsso}`, 'HPECLIENTTYPE': 'HPE_REST_API_TECH_PREVIEW' };
+
+    // Step 1: /v1/auth — confirms identity, sometimes returns a numeric id
     try {
-      const meRes = await fetch(
-        `${BASE_URL}/v1/auth`,
-        { headers: { 'Cookie': `${cookieName}=${lwsso}`, 'HPECLIENTTYPE': 'HPE_REST_API_TECH_PREVIEW' } },
-      );
-      const meBody = await meRes.text();
-      console.log('[VE me] status=', meRes.status);
-      const me = JSON.parse(meBody) as { id?: string; name?: string; full_name?: string; email?: string };
-      if (me.name || me.id) {
-        userId = `valueedge:${me.id || me.name}`;
-        userName = me.full_name || me.name || userName;
-        initials = userName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || initials;
+      const meRes = await fetch(`${BASE_URL}/v1/auth`, { headers: veHeaders });
+      const me = JSON.parse(await meRes.text()) as { id?: string; name?: string; full_name?: string; email?: string };
+      console.log('[VE me] status=', meRes.status, 'body=', JSON.stringify(me));
+      if (me.id || me.name) {
+        const veId = me.id || me.name!;
+        // Only treat as a canonical id if it's not just the login email again
+        if (veId !== veUserName) resolvedVeId = veId;
+        userId = `valueedge:${veId}`;
+        if (me.full_name) {
+          userName = me.full_name;
+          initials = userName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || initials;
+          resolvedDisplayName = true;
+        }
       }
     } catch {
-      // Non-fatal; user info is best-effort
+      // Non-fatal
     }
 
-    // Check if user exists and is allowed to log in (no auto-creation)
-    const [existing] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    // Step 2: workspace_users — reliable source for full_name AND canonical numeric id.
+    // Configured admins are stored with email-based ids (e.g. valueedge:areid2@opentext.com)
+    // because that's all we know at config time. workspace_users may return a numeric id
+    // (e.g. 93022) which should become the canonical id — same as users added via directory search.
+    try {
+      const escaped = veUserName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const query = encodeURIComponent(`"name='${escaped}' || email='${escaped}'"`);
+      const wsUsersUrl = `${BASE_URL}/api/shared_spaces/${SHARED_SPACE}/workspaces/${WORKSPACE}`
+        + `/workspace_users?query=${query}&fields=id,full_name,first_name,last_name,email&limit=1`;
+      const wuRes = await fetch(wsUsersUrl, { headers: veHeaders });
+      console.log('[VE workspace_users] status=', wuRes.status);
+      if (wuRes.ok) {
+        const wuBody = await wuRes.json() as { data?: Array<{ id?: unknown; full_name?: string; first_name?: string; last_name?: string; email?: string }> };
+        const wuUser = wuBody.data?.[0];
+        console.log('[VE workspace_users] total=', wuBody.data?.length ?? 0, 'user=', wuUser ? JSON.stringify(wuUser) : 'none');
+        if (wuUser) {
+          // Use numeric id from workspace_users as canonical if it differs from login email
+          const wuId = wuUser.id != null ? String(wuUser.id) : undefined;
+          if (wuId && wuId !== veUserName) {
+            resolvedVeId = wuId;
+            userId = `valueedge:${wuId}`;
+          }
+          if (!resolvedDisplayName) {
+            const fullName = wuUser.full_name
+              || [wuUser.first_name, wuUser.last_name].filter(Boolean).join(' ');
+            if (fullName) {
+              userName = fullName;
+              initials = userName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || initials;
+              resolvedDisplayName = true;
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+
+    // Check if user exists under the resolved canonical id
+    let existing = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+
+    // If not found under canonical id, check if there's an email-based configured-admin stub.
+    // This happens on first login for admins defined in ADMIN_USERS with their email.
+    if (!existing && resolvedVeId && userId !== emailUserId) {
+      const emailStub = (await db.select().from(users).where(eq(users.id, emailUserId)).limit(1))[0];
+      if (emailStub) {
+        console.log(`[VE auth] Migrating configured-admin stub ${emailUserId} → ${userId}`);
+        try {
+          await db.transaction(async (tx) => {
+            await tx.insert(users).values({ ...emailStub, id: userId, providerId: resolvedVeId! });
+            await tx.delete(users).where(eq(users.id, emailUserId));
+          });
+          // Keep configuredAdminIds in sync so the "Configured" tag shows correctly in admin UI
+          configuredAdminIds.add(userId);
+          configuredAdminIds.delete(emailUserId);
+          existing = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+        } catch (migErr) {
+          // Migration failed (e.g. FK deps) — fall back to email-based stub
+          console.warn('[VE auth] Stub migration failed, falling back to email id:', migErr);
+          userId = emailUserId;
+          existing = emailStub;
+        }
+      }
+    }
+
     if (!existing || existing.status === 'revoked') {
-      // User not in DB or revoked — deny login
       res.status(403).json({ error: { code: 'ACCESS_DENIED', message: 'Your account has not been granted access. Ask an administrator to add you.' } });
       return;
     }
 
-    // Update profile fields from VE (name, initials, lastLoginAt)
-    await db.update(users).set({ name: userName, initials, lastLoginAt: new Date() }).where(eq(users.id, userId));
+    // Update name/initials only when VE gave us a real display name; otherwise preserve admin-set value
+    if (resolvedDisplayName) {
+      await db.update(users).set({ name: userName, initials, avatarUrl: `/api/users/${userId}/avatar`, lastLoginAt: new Date() }).where(eq(users.id, userId));
+    } else {
+      userName = existing.name;
+      initials = existing.initials;
+      await db.update(users).set({ avatarUrl: `/api/users/${userId}/avatar`, lastLoginAt: new Date() }).where(eq(users.id, userId));
+    }
 
     // Persist the access token + user identity in the iron-session cookie
     const session = await getSession(req, res);

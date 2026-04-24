@@ -49,7 +49,9 @@ export interface ProviderAdapter {
   healthCheckIntervalMs: number | null;
   entityTypes: ProviderEntityType[];
 
-  /** Lightweight connection check — returns true if the token is still valid. */
+  /** Lightweight connection check — returns true if the token is still valid.
+   * Throws ProviderAuthError if the token is expired/invalid (401/403).
+   * Returns false for network or server errors. */
   checkConnection?(token: string): Promise<boolean>;
 
   /** Search backend items by query string */
@@ -89,6 +91,13 @@ export interface ProviderAdapter {
     query: string,
     opts?: { cursor?: string; limit?: number },
   ): Promise<{ results: ProviderUser[]; nextCursor?: string }>;
+
+  /**
+   * Fetch a user's avatar image as a Buffer, or null if unavailable.
+   * Returns { data, contentType } on success, null if the provider doesn't
+   * support avatars or the user has no picture.
+   */
+  fetchUserAvatar?(token: string, providerId: string): Promise<{ data: Buffer; contentType: string } | null>;
 }
 
 export interface ProviderUser {
