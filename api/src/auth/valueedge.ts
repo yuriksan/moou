@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getSession } from './session.js';
 import { configuredAdminIds } from './configured-admins.js';
 
@@ -158,7 +158,7 @@ router.get('/valueedge/poll', async (req, res) => {
     try {
       const meRes = await fetch(`${BASE_URL}/v1/auth`, { headers: veHeaders });
       const me = JSON.parse(await meRes.text()) as { id?: string; name?: string; full_name?: string; email?: string };
-      console.log('[VE me] status=', meRes.status, 'body=', JSON.stringify(me));
+      console.log('[VE me] status=', meRes.status, 'hasId=', !!me.id, 'hasName=', !!me.name);
       if (me.id || me.name) {
         const veId = me.id || me.name!;
         // Only treat as a canonical id if it's not just the login email again
@@ -188,7 +188,7 @@ router.get('/valueedge/poll', async (req, res) => {
       if (wuRes.ok) {
         const wuBody = await wuRes.json() as { data?: Array<{ id?: unknown; full_name?: string; first_name?: string; last_name?: string; email?: string }> };
         const wuUser = wuBody.data?.[0];
-        console.log('[VE workspace_users] total=', wuBody.data?.length ?? 0, 'user=', wuUser ? JSON.stringify(wuUser) : 'none');
+        console.log('[VE workspace_users] total=', wuBody.data?.length ?? 0, 'matched=', !!wuUser);
         if (wuUser) {
           // Use numeric id from workspace_users as canonical if it differs from login email
           const wuId = wuUser.id != null ? String(wuUser.id) : undefined;
@@ -222,7 +222,19 @@ router.get('/valueedge/poll', async (req, res) => {
         console.log(`[VE auth] Migrating configured-admin stub ${emailUserId} → ${userId}`);
         try {
           await db.transaction(async (tx) => {
+            // Insert new row first
             await tx.insert(users).values({ ...emailStub, id: userId, providerId: resolvedVeId! });
+            // Update all FK references from old id to new id
+            await tx.execute(sql`UPDATE outcomes SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE milestones SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE comments SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE outcome_motivations SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE external_links SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE history SET changed_by = ${userId} WHERE changed_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE users SET created_by = ${userId} WHERE created_by = ${emailUserId}`);
+            await tx.execute(sql`UPDATE user_audit_log SET target_user_id = ${userId} WHERE target_user_id = ${emailUserId}`);
+            await tx.execute(sql`UPDATE user_audit_log SET actor_user_id = ${userId} WHERE actor_user_id = ${emailUserId}`);
+            // Now safe to delete old row
             await tx.delete(users).where(eq(users.id, emailUserId));
           });
           // Keep configuredAdminIds in sync so the "Configured" tag shows correctly in admin UI

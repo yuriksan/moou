@@ -17,6 +17,9 @@ const route = useRoute();
 const { on } = useSSE();
 on('session_expired', () => {
   toast.error('Your session has expired. Please sign in again.', { title: 'Session expired' });
+  authenticatedUser.value = null;
+  currentUser.value = null;
+  stopConnectionMonitor();
   router.push('/login');
 });
 
