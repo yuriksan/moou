@@ -219,7 +219,7 @@ router.get('/valueedge/poll', async (req, res) => {
     if (!existing && resolvedVeId && userId !== emailUserId) {
       const emailStub = (await db.select().from(users).where(eq(users.id, emailUserId)).limit(1))[0];
       if (emailStub) {
-        console.log(`[VE auth] Migrating configured-admin stub ${emailUserId} → ${userId}`);
+        console.log('[VE auth] Migrating configured-admin stub to numeric id');
         try {
           await db.transaction(async (tx) => {
             // Insert new row first
@@ -244,7 +244,7 @@ router.get('/valueedge/poll', async (req, res) => {
           existing = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
         } catch (migErr) {
           // Migration failed (e.g. FK deps) — fall back to email-based stub
-          console.warn('[VE auth] Stub migration failed, falling back to email id:', migErr);
+          console.warn('[VE auth] Stub migration failed, falling back to email id:', (migErr as Error).message);
           userId = emailUserId;
           existing = emailStub;
         }

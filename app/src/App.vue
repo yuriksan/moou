@@ -184,8 +184,8 @@ const navItems = [
       <button class="help-btn" @click="showWalkthrough = true" title="Help & walkthrough">?</button>
       <!-- Authenticated user (GitHub or ValueEdge) -->
       <div v-if="authenticatedUser" class="user-switcher" @click="showUserMenu = !showUserMenu">
-        <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" />
-        <div v-else class="avatar">{{ authenticatedUser.initials }}</div>
+        <img v-if="authenticatedUser.avatarUrl" :src="authenticatedUser.avatarUrl" class="avatar-img" @error="($event.target as HTMLImageElement).style.display='none'; ($event.target as HTMLImageElement).nextElementSibling?.removeAttribute('hidden')" alt="" />
+        <div :hidden="!!authenticatedUser.avatarUrl" class="avatar">{{ authenticatedUser.initials }}</div>
         <div class="user-info">
           <span class="user-name">{{ authenticatedUser.name }}</span><span v-if="currentUser?.role === 'admin'" class="role-label role-admin"> · Admin</span><span v-else-if="currentUser?.role === 'viewer'" class="role-label role-viewer"> · Read-only</span>
         </div>
