@@ -54,6 +54,7 @@ interface OutcomeRow {
   tags: string;
   motivationCount: number;
   topMotivationType: string | null;
+  motivationTypes: string[];   // deduplicated list of all motivation types
   motivationSummary: string;
   primaryLinkUrl: string | null;
 }
@@ -156,14 +157,16 @@ async function buildStructuredData() {
     const oLinks = linksByOutcome.get(o.id) || [];
     const oTags = [...(outcomeTagMap.get(o.id) ?? [])].join(', ');
 
-    // Find top motivation (highest score)
+    // Find top motivation (highest score) and all unique types
     let topType: string | null = null;
     let topScore = -Infinity;
     const summaryLines: string[] = [];
+    const typeSet = new Set<string>();
     for (const link of oLinks) {
       const s = Number(link.motivationScore || 0);
       summaryLines.push(`${link.motivationType}: "${link.motivationTitle}" (score: ${s.toLocaleString('en', { maximumFractionDigits: 0 })})`);
       if (s > topScore) { topScore = s; topType = link.motivationType; }
+      typeSet.add(link.motivationType);
     }
 
     return {
@@ -180,6 +183,7 @@ async function buildStructuredData() {
       tags: oTags,
       motivationCount: oLinks.length,
       topMotivationType: topType,
+      motivationTypes: [...typeSet],
       motivationSummary: summaryLines.join('\n'),
       primaryLinkUrl: o.primaryLinkUrl || null,
     };
@@ -696,6 +700,7 @@ const DECK = {
   green: '16a34a',
   amber: 'f59e0b',
   red: 'dc2626',
+  slate: '64748b',        // neutral grey for 'draft' / not-yet-committed
   greenBg: 'f0fdf4',
   amberBg: 'fefce8',
   redBg: 'fef2f2',
@@ -710,13 +715,22 @@ const DECK = {
   borderLight: 'f1f5f9',
 };
 
-// Motivation type colors (richer)
+// Motivation type colors — chosen to NOT clash with statusColor() greens/ambers
 const TYPE_COLORS: Record<string, string> = {
-  'Customer Demand': '3b82f6',
-  'Tech Debt': 'ef4444',
-  'Compliance': '8b5cf6',
-  'Competitive Gap': '10b981',
-  'Internal Mandate': 'f59e0b',
+  'Customer Demand': '2563eb',   // blue-600
+  'Tech Debt':       'dc2626',   // red-600
+  'Compliance':      '7c3aed',   // violet-600
+  'Competitive Gap': '0891b2',   // cyan-600 (not the same green as status)
+  'Internal Mandate':'ea580c',   // orange-600 (not the same amber as status)
+};
+
+// Short 2-letter abbreviations for space-constrained pills
+const TYPE_ABBREVS: Record<string, string> = {
+  'Customer Demand': 'CD',
+  'Tech Debt':       'TD',
+  'Compliance':      'CO',
+  'Competitive Gap': 'CG',
+  'Internal Mandate':'IM',
 };
 
 /** Parse a date-only string (YYYY-MM-DD) to UTC midnight for DST-safe day math. */
@@ -747,7 +761,7 @@ function truncate(text: string, max: number): string {
 
 function statusColor(status: string): string {
   if (status === 'completed' || status === 'active' || status === 'approved') return DECK.green;
-  if (status === 'draft') return DECK.amber;
+  if (status === 'draft') return DECK.slate;
   if (status === 'deferred' || status === 'archived') return DECK.red;
   return DECK.textMuted;
 }
@@ -1028,8 +1042,10 @@ router.get('/timeline/pptx', async (_req, res) => {
     const typeValues: number[] = [];
     const typeColors: string[] = [];
     const sortedTypeScores = [...metrics.typeScores.entries()].sort((a, b) => b[1] - a[1]);
+    const totalTypeScore = sortedTypeScores.reduce((s, [, v]) => s + v, 0);
     for (const [typeName, totalScore] of sortedTypeScores) {
-      if (totalScore > 0) {
+      // Drop entries that round to 0% — they produce overlapping labels
+      if (totalScore > 0 && totalScore / Math.max(totalTypeScore, 1) >= 0.01) {
         typeLabels.push(typeName);
         typeValues.push(totalScore);
         typeColors.push(TYPE_COLORS[typeName] || DECK.textMuted);
@@ -1039,25 +1055,23 @@ router.get('/timeline/pptx', async (_req, res) => {
       slide.addChart('doughnut', [{ labels: typeLabels, values: typeValues }], {
         x: 7.5, y: 3.8, w: 5.3, h: 3.2,
         holeSize: 50,
-        showPercent: true,
-        showLabel: true,
-        dataLabelPosition: 'outEnd',
-        dataLabelFontSize: 9,
+        showPercent: false,
+        showLabel: false,
+        showValue: false,
         chartColors: typeColors,
         showLegend: true,
         legendPos: 'b',
-        legendFontSize: 9,
+        legendFontSize: 10,
       });
     }
   }
 
   // ═══════════════════════════════════════════════
-  // SLIDE 3: "Current Delivery" — Swimlane Timeline
+  // SLIDE 3+: "Current Delivery" — Swimlane Timeline
+  //   Splits across multiple slides when there are many milestones.
   // ═══════════════════════════════════════════════
   {
-    const activeMilestones = milestoneRows
-      .filter(ms => ms.status !== 'completed')
-      .slice(0, 6);
+    const activeMilestones = milestoneRows.filter(ms => ms.status !== 'completed');
 
     // Group outcomes by milestone
     const outcomesByMs = new Map<string, OutcomeRow[]>();
@@ -1069,78 +1083,184 @@ router.get('/timeline/pptx', async (_req, res) => {
     }
 
     const activeOutcomeCount = activeMilestones.reduce((s, ms) => s + ms.outcomeCount, 0);
-    const titleText = activeMilestones.length > 0
-      ? `${activeMilestones.length} milestones in flight \u00b7 ${activeOutcomeCount} outcomes`
-      : 'No active milestones';
+    const totalMilestones = activeMilestones.length;
 
-    const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
-    slide.addText(titleText, { x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 22, fontFace: 'Calibri', color: DECK.textDark, bold: true });
+    // A milestone is 'in planning' when ALL its outcomes are drafts (or it has none);
+    // otherwise it's 'in flight' (has at least one active/approved/completed outcome).
+    const isMilestoneInPlanning = (ms: MilestoneRow): boolean => {
+      const outs = outcomesByMs.get(ms.name) || [];
+      if (outs.length === 0) return true;
+      return outs.every(o => o.status === 'draft');
+    };
+    const inFlightCount = activeMilestones.filter(ms => !isMilestoneInPlanning(ms)).length;
+    const inPlanningCount = activeMilestones.length - inFlightCount;
+
+    const laneLeft = 0.5;
+    const labelW = 2.5;
+    const trackLeft = 3.2;
+    const trackW = 9.6;
+    const laneH = 1.1;       // taller lanes so outcome names have room
+    const laneGap = 0.15;
+    const startY = 1.4;
+    const blockW = 1.65;     // wide enough for ~20 chars at 8pt
+    const blockH = 0.72;     // tall enough for two-line title
+    const blockGap = 0.12;
+    const maxBlocks = 5;     // max(floor((trackW-0.15)/(blockW+blockGap))) = 5
+    const slideUsableH = 7.0 - startY; // leave room for two-row legend at y=7.08
+    const lanesPerSlide = Math.floor(slideUsableH / (laneH + laneGap));
 
     if (activeMilestones.length > 0) {
-      const laneLeft = 0.5;
-      const labelW = 2.5;
-      const trackLeft = 3.2;
-      const trackW = 9.6;
-      const laneH = 0.9;
-      const laneGap = 0.15;
-      const startY = 1.4;
-      const blockW = 0.9;
-      const blockH = 0.45;
-      const blockGap = 0.12;
+      // Chunk into pages
+      for (let page = 0; page * lanesPerSlide < totalMilestones; page++) {
+        const pageSlice = activeMilestones.slice(page * lanesPerSlide, (page + 1) * lanesPerSlide);
+        const totalPages = Math.ceil(totalMilestones / lanesPerSlide);
 
-      for (let i = 0; i < activeMilestones.length; i++) {
-        const ms = activeMilestones[i]!;
-        const y = startY + i * (laneH + laneGap);
+        const titleParts: string[] = [];
+        if (inFlightCount > 0) titleParts.push(`${inFlightCount} in flight`);
+        if (inPlanningCount > 0) titleParts.push(`${inPlanningCount} in planning`);
+        titleParts.push(`${activeOutcomeCount} outcomes`);
+        const titleText = page === 0
+          ? titleParts.join(' \u00b7 ')
+          : `Current Delivery (cont.) \u00b7 ${titleParts.join(' \u00b7 ')}`;
+        const pageLabel = totalPages > 1 ? ` \u00b7 ${page + 1} of ${totalPages}` : '';
 
-        // Lane background
-        slide.addShape('rect', {
-          x: trackLeft, y, w: trackW, h: laneH,
-          fill: { color: DECK.borderLight },
-        });
+        const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
+        slide.addText(titleText + pageLabel, { x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 22, fontFace: 'Calibri', color: DECK.textDark, bold: true });
 
-        // Milestone label on left
-        slide.addText(truncate(ms.name, 22), {
-          x: laneLeft, y, w: labelW, h: laneH * 0.55,
-          fontSize: 11, fontFace: 'Calibri', color: DECK.textDark, bold: true, align: 'right', valign: 'middle',
-        });
-        slide.addText(ms.targetDate, {
-          x: laneLeft, y: y + laneH * 0.5, w: labelW, h: laneH * 0.45,
-          fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted, align: 'right', valign: 'top',
-        });
+        for (let i = 0; i < pageSlice.length; i++) {
+          const ms = pageSlice[i]!;
+          const y = startY + i * (laneH + laneGap);
 
-        // Outcome blocks within the lane
-        const msOutcomes = (outcomesByMs.get(ms.name) || [])
-          .slice().sort((a, b) => Number(b.priorityScore) - Number(a.priorityScore));
-        const maxBlocks = 8;
-        const shown = msOutcomes.slice(0, maxBlocks);
-        const remaining = msOutcomes.length - shown.length;
-
-        for (let j = 0; j < shown.length; j++) {
-          const o = shown[j]!;
-          const bx = trackLeft + 0.15 + j * (blockW + blockGap);
-          const by = y + (laneH - blockH) / 2;
-          const color = statusColor(o.status);
-
-          slide.addShape('roundRect', {
-            x: bx, y: by, w: blockW, h: blockH,
-            fill: { color }, rectRadius: 0.03,
+          // Lane background
+          slide.addShape('rect', {
+            x: trackLeft, y, w: trackW, h: laneH,
+            fill: { color: DECK.borderLight },
           });
-          slide.addText(truncate(o.title, 10), {
-            x: bx, y: by, w: blockW, h: blockH,
-            fontSize: 7, fontFace: 'Calibri', color: DECK.white, align: 'center', valign: 'middle',
+
+          // Milestone label on left
+          slide.addText(truncate(ms.name, 22), {
+            x: laneLeft, y, w: labelW, h: laneH * 0.55,
+            fontSize: 11, fontFace: 'Calibri', color: DECK.textDark, bold: true, align: 'right', valign: 'middle',
           });
+          slide.addText(ms.targetDate + (ms.type ? `  ·  ${ms.type}` : ''), {
+            x: laneLeft, y: y + laneH * 0.5, w: labelW, h: laneH * 0.28,
+            fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted, align: 'right', valign: 'top',
+          });
+          if (ms.avgPriorityScore > 0) {
+            slide.addText(`avg ${ms.avgPriorityScore.toLocaleString()} pts`, {
+              x: laneLeft, y: y + laneH * 0.78, w: labelW, h: laneH * 0.22,
+              fontSize: 8, fontFace: 'Calibri', color: DECK.textLight, align: 'right', valign: 'top', italic: true,
+            });
+          }
+
+          // Outcome blocks within the lane
+          const msOutcomes = (outcomesByMs.get(ms.name) || [])
+            .slice().sort((a, b) => Number(b.priorityScore) - Number(a.priorityScore));
+          const shown = msOutcomes.slice(0, maxBlocks);
+          const remaining = msOutcomes.length - shown.length;
+
+          for (let j = 0; j < shown.length; j++) {
+            const o = shown[j]!;
+            const bx = trackLeft + 0.15 + j * (blockW + blockGap);
+            const by = y + (laneH - blockH) / 2;
+            const color = statusColor(o.status);
+
+            // Block background
+            slide.addShape('roundRect', {
+              x: bx, y: by, w: blockW, h: blockH,
+              fill: { color }, rectRadius: 0.05,
+            });
+
+            // Pill row height — only show if there are types
+            const hasPills = o.motivationTypes.length > 0;
+            const pillH = 0.17;
+            const titleH = blockH - 0.1 - (hasPills ? pillH + 0.06 : 0);
+
+            // Title
+            slide.addText(truncate(o.title, 28), {
+              x: bx + 0.07, y: by + 0.05, w: blockW - 0.14, h: titleH,
+              fontSize: 8, fontFace: 'Calibri', color: DECK.white,
+              align: 'left', valign: 'top', wrap: true,
+            });
+
+            // Motivation type pills — solid colour fill + white abbreviation text
+            if (hasPills) {
+              const pillW = 0.38;   // wide enough for 2 chars at 7pt on one line
+              const pillGap = 0.05;
+              let px = bx + 0.07;
+              const pillY = by + blockH - pillH - 0.05;
+              for (const typeName of o.motivationTypes.slice(0, 4)) {
+                const pillColor = TYPE_COLORS[typeName] || '64748b';
+                const abbrev = TYPE_ABBREVS[typeName] || typeName.slice(0, 2).toUpperCase();
+                slide.addShape('roundRect', {
+                  x: px, y: pillY, w: pillW, h: pillH,
+                  fill: { color: pillColor }, rectRadius: 0.04,
+                });
+                slide.addText(abbrev, {
+                  x: px, y: pillY, w: pillW, h: pillH,
+                  fontSize: 7, fontFace: 'Calibri', color: DECK.white,
+                  align: 'center', valign: 'middle', bold: true,
+                });
+                px += pillW + pillGap;
+              }
+            }
+          }
+
+          if (remaining > 0) {
+            const overflowX = trackLeft + 0.15 + shown.length * (blockW + blockGap);
+            slide.addText(`+${remaining}`, {
+              x: overflowX, y: y + (laneH - blockH) / 2, w: 0.5, h: blockH,
+              fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted, valign: 'middle',
+            });
+          }
         }
 
-        if (remaining > 0) {
-          const overflowX = trackLeft + 0.15 + shown.length * (blockW + blockGap);
-          slide.addText(`+${remaining}`, {
-            x: overflowX, y: y + (laneH - blockH) / 2, w: 0.5, h: blockH,
-            fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted, valign: 'middle',
-          });
+        // Legend — two rows at the bottom, colour squares + full names (no tiny abbreviation text)
+        const legendFontSize = 8;
+        const swatchS = 0.13;
+        const swatchGap = 0.06;
+        const entryGap = 0.25;
+        const legLabelW = 1.05;
+        const row1Y = 7.08;
+        const row2Y = 7.32;
+
+        // Row 1: motivation types present on this page
+        const legendTypes = Object.keys(TYPE_ABBREVS).filter(t =>
+          pageSlice.some(ms => (outcomesByMs.get(ms.name) || []).some(o => o.motivationTypes.includes(t)))
+        );
+        if (legendTypes.length > 0) {
+          let lx = 0.5;
+          slide.addText('Why these outcomes', { x: lx, y: row1Y, w: 1.4, h: swatchS, fontSize: legendFontSize, fontFace: 'Calibri', color: DECK.textLight, valign: 'middle', italic: true });
+          lx += 1.45;
+          for (const t of legendTypes) {
+            slide.addShape('roundRect', { x: lx, y: row1Y, w: swatchS, h: swatchS, fill: { color: TYPE_COLORS[t] || '64748b' }, rectRadius: 0.02 });
+            lx += swatchS + swatchGap;
+            slide.addText(t, { x: lx, y: row1Y, w: legLabelW, h: swatchS, fontSize: legendFontSize, fontFace: 'Calibri', color: DECK.textMuted, valign: 'middle' });
+            lx += legLabelW + entryGap;
+          }
+        }
+
+        // Row 2: block status colours
+        const statusLegend: { color: string; label: string }[] = [
+          { color: DECK.green, label: 'Active / approved' },
+          { color: DECK.slate, label: 'Draft' },
+          { color: DECK.red,   label: 'Deferred' },
+        ];
+        {
+          let lx = 0.5;
+          slide.addText('Outcome status', { x: lx, y: row2Y, w: 1.4, h: swatchS, fontSize: legendFontSize, fontFace: 'Calibri', color: DECK.textLight, valign: 'middle', italic: true });
+          lx += 1.45;
+          for (const { color, label } of statusLegend) {
+            slide.addShape('roundRect', { x: lx, y: row2Y, w: swatchS, h: swatchS, fill: { color }, rectRadius: 0.02 });
+            lx += swatchS + swatchGap;
+            slide.addText(label, { x: lx, y: row2Y, w: legLabelW + 0.2, h: swatchS, fontSize: legendFontSize, fontFace: 'Calibri', color: DECK.textMuted, valign: 'middle' });
+            lx += legLabelW + 0.2 + entryGap;
+          }
         }
       }
     } else if (milestoneRows.length > 0) {
       // All completed
+      const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
       slide.addText('All milestones are completed', { x: 0.5, y: 1.5, w: 12.3, h: 0.5, fontSize: 14, fontFace: 'Calibri', color: DECK.textMuted, align: 'center' });
       const rows = milestoneRows.slice(0, 10).map(ms => [
         td(ms.name), td(ms.targetDate), td(`${ms.outcomeCount} outcomes`), td(`${ms.completedCount} done`),
@@ -1291,44 +1411,8 @@ router.get('/timeline/pptx', async (_req, res) => {
   }
 
   // ═══════════════════════════════════════════════
-  // SLIDE 6: "What's Ahead" — Future Work
+  // SLIDE 6 (removed — future milestones are now shown in the swimlane above)
   // ═══════════════════════════════════════════════
-  {
-    const today = todayUTC();
-    const futureMilestones = milestoneRows.filter(ms =>
-      ms.status === 'upcoming' && parseDateUTC(ms.targetDate).getTime() > today.getTime()
-    );
-
-    if (futureMilestones.length > 0) {
-      const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
-
-      slide.addText(`Planning Ahead \u00b7 ${futureMilestones.length} upcoming milestones`, {
-        x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 22, fontFace: 'Calibri', color: DECK.textDark, bold: true,
-      });
-
-      const dataRows = futureMilestones.slice(0, 10).map(ms => [
-        td(truncate(ms.name, 35), { color: DECK.textMuted }),
-        td(ms.targetDate, { color: DECK.textMuted }),
-        td(String(ms.outcomeCount), { color: DECK.textMuted }),
-        td(String(ms.avgPriorityScore), { color: DECK.textMuted }),
-        td(ms.type, { color: DECK.textLight }),
-      ]);
-
-      slide.addTable([
-        [th('Milestone'), th('Target Date'), th('Outcomes'), th('Avg Score'), th('Type')],
-        ...dataRows,
-      ], {
-        x: 0.5, y: 1.3, w: 12.3,
-        colW: [4.5, 2.0, 1.5, 1.5, 2.0],
-        border: { type: 'solid', pt: 0.5, color: DECK.border },
-        rowH: 0.4,
-      });
-
-      slide.addText('Planned, not yet committed', {
-        x: 0.5, y: 6.8, w: 12.3, h: 0.3, fontSize: 10, fontFace: 'Calibri', color: DECK.textLight, italic: true,
-      });
-    }
-  }
 
   // ═══════════════════════════════════════════════
   // SLIDE 7: "Why This Roadmap" — Motivations
@@ -1339,8 +1423,10 @@ router.get('/timeline/pptx', async (_req, res) => {
     const typeValues: number[] = [];
     const typeColors: string[] = [];
     const sortedTypeScores = [...metrics.typeScores.entries()].sort((a, b) => b[1] - a[1]);
+    const totalTypeScore = sortedTypeScores.reduce((s, [, v]) => s + v, 0);
     for (const [typeName, totalScore] of sortedTypeScores) {
-      if (totalScore > 0) {
+      // Drop entries that round to 0% — they produce overlapping labels
+      if (totalScore > 0 && totalScore / Math.max(totalTypeScore, 1) >= 0.01) {
         typeLabels.push(typeName);
         typeValues.push(totalScore);
         typeColors.push(TYPE_COLORS[typeName] || DECK.textMuted);
@@ -1351,47 +1437,68 @@ router.get('/timeline/pptx', async (_req, res) => {
       const slide = pres.addSlide({ masterName: 'MOOU_MASTER' });
       slide.addText("What's Driving the Roadmap", { x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 22, fontFace: 'Calibri', color: DECK.textDark, bold: true });
 
-      // Left side: doughnut
+      // Left side: doughnut — labels off, legend does the work
       slide.addChart('doughnut', [{ labels: typeLabels, values: typeValues }], {
-        x: 0.3, y: 1.2, w: 6.0, h: 5.5,
-        holeSize: 50,
-        showPercent: true,
-        showLabel: true,
-        dataLabelPosition: 'outEnd',
-        dataLabelFontSize: 10,
+        x: 0.3, y: 1.0, w: 5.2, h: 4.8,
+        holeSize: 55,
+        showPercent: false,
+        showLabel: false,
+        showValue: false,
         chartColors: typeColors,
         showLegend: true,
         legendPos: 'b',
-        legendFontSize: 10,
+        legendFontSize: 11,
       });
 
-      // Right side: top 5 motivations by score
+      // Right side: top 5 motivations — card-style layout
+      // Each card: card bg + left colour bar + type pill + title + score
       const topMotivations = allMotivations
         .slice().sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
         .slice(0, 5);
 
+      const cardX = 5.9;
+      const cardW = 7.2;
+      const cardH = 0.85;
+      const cardGap = 0.15;
+      const cardStartY = 1.1;
+
       for (let i = 0; i < topMotivations.length; i++) {
         const m = topMotivations[i]!;
-        const y = 1.5 + i * 1.1;
+        const y = cardStartY + i * (cardH + cardGap);
         const typeColor = TYPE_COLORS[m.typeName] || DECK.textMuted;
 
-        // Type pill
+        // Card background
+        slide.addShape('rect', {
+          x: cardX, y, w: cardW, h: cardH,
+          fill: { color: 'F8F8F6' }, line: { color: 'E8E7E3', width: 0.5 },
+        });
+
+        // Left colour accent bar
+        slide.addShape('rect', {
+          x: cardX, y, w: 0.06, h: cardH,
+          fill: { color: typeColor }, line: { color: typeColor, width: 0 },
+        });
+
+        // Type pill (top-left inside card)
         slide.addShape('roundRect', {
-          x: 6.8, y: y, w: 1.6, h: 0.3,
-          fill: { color: typeColor }, rectRadius: 0.08,
+          x: cardX + 0.18, y: y + 0.08, w: 1.5, h: 0.22,
+          fill: { color: typeColor }, rectRadius: 0.06,
         });
-        slide.addText(truncate(m.typeName, 18), {
-          x: 6.8, y: y, w: 1.6, h: 0.3,
-          fontSize: 8, fontFace: 'Calibri', color: DECK.white, align: 'center', valign: 'middle',
+        slide.addText(truncate(m.typeName, 20), {
+          x: cardX + 0.18, y: y + 0.08, w: 1.5, h: 0.22,
+          fontSize: 7, fontFace: 'Calibri', color: DECK.white, align: 'center', valign: 'middle', bold: true,
         });
-        // Title + score
-        slide.addText(truncate(m.title, 35), {
-          x: 8.6, y: y - 0.05, w: 3.8, h: 0.35,
-          fontSize: 11, fontFace: 'Calibri', color: DECK.textDark, bold: true,
+
+        // Score badge (top-right)
+        slide.addText(`${formatScore(m.score)}`, {
+          x: cardX + cardW - 1.3, y: y + 0.08, w: 1.1, h: 0.22,
+          fontSize: 9, fontFace: 'Calibri Mono', color: typeColor, align: 'right', valign: 'middle', bold: true,
         });
-        slide.addText(`Score: ${formatScore(m.score)}`, {
-          x: 8.6, y: y + 0.3, w: 3.8, h: 0.3,
-          fontSize: 9, fontFace: 'Calibri', color: DECK.textMuted,
+
+        // Motivation title (below pill)
+        slide.addText(truncate(m.title, 55), {
+          x: cardX + 0.18, y: y + 0.36, w: cardW - 0.28, h: 0.4,
+          fontSize: 10, fontFace: 'Calibri', color: DECK.textDark, bold: true, valign: 'top',
         });
       }
     }
