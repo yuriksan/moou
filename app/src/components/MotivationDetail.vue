@@ -28,6 +28,7 @@ const emit = defineEmits<{
 }>();
 
 const motivation = ref<any>(null);
+const motivationTypes = ref<any[]>([]);
 const history = ref<any[]>([]);
 const showAllHistory = ref(false);
 const loading = ref(true);
@@ -43,12 +44,14 @@ const displayHistory = computed(() => formatHistory(history.value));
 async function load() {
   loading.value = true;
   try {
-    const [m, h] = await Promise.all([
+    const [m, h, types] = await Promise.all([
       api.getMotivation(props.motivationId),
       api.getMotivationHistory(props.motivationId, { limit: '10' }),
+      motivationTypes.value.length > 0 ? Promise.resolve(motivationTypes.value) : api.getMotivationTypes(),
     ]);
     motivation.value = m;
     history.value = h.data;
+    motivationTypes.value = types;
 
     // Check date mismatches for each linked outcome's milestone
     const mm = new Map<string, DateMismatch | null>();
@@ -136,7 +139,37 @@ function formatAttrKey(key: string): string {
   return key.replace(/_/g, ' ');
 }
 
+const selectedType = computed(() => motivationTypes.value.find(t => t.id === motivation.value?.typeId));
+
+const schemaAttributeFields = computed(() => {
+  if (!selectedType.value?.attributeSchema?.properties) return [];
+  return Object.entries(selectedType.value.attributeSchema.properties).map(([key]) => ({
+    key,
+    label: formatAttrKey(key),
+  }));
+});
+
+const displayAttributes = computed(() => {
+  const attrs: Record<string, unknown> = motivation.value?.attributes || {};
+
+  // Prefer motivation-type schema order so readonly displays the same fields as edit mode.
+  if (schemaAttributeFields.value.length > 0) {
+    return schemaAttributeFields.value.map((field: { key: string; label: string }) => ({
+      key: field.key,
+      label: field.label,
+      value: attrs[field.key],
+    }));
+  }
+
+  return Object.entries(attrs).map(([key, value]) => ({
+    key,
+    label: formatAttrKey(key),
+    value,
+  }));
+});
+
 function formatAttrValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
   if (value === true) return 'Yes';
   if (value === false) return 'No';
   if (typeof value === 'number') {
@@ -213,10 +246,11 @@ function formatAttrValue(value: unknown): string {
       <section v-if="!editing" class="section editable-section" @click="editing = true" title="Click to edit">
         <h3 class="section-title">Attributes</h3>
         <div class="attrs">
-          <div v-for="(value, key) in (motivation.attributes || {})" :key="key" class="attr-row">
-            <span class="attr-key">{{ formatAttrKey(key as string) }}</span>
-            <span class="attr-value font-mono">{{ formatAttrValue(value) }}</span>
+          <div v-for="attr in displayAttributes" :key="attr.key" class="attr-row">
+            <span class="attr-key">{{ attr.label }}</span>
+            <span class="attr-value font-mono">{{ formatAttrValue(attr.value) }}</span>
           </div>
+          <div v-if="displayAttributes.length === 0" class="empty">No attributes configured</div>
         </div>
       </section>
 
