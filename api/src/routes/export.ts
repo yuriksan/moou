@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
+import TurndownService from 'turndown';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const PptxGenJS = require('pptxgenjs');
@@ -10,6 +11,8 @@ import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, V
 import { getAdapter } from '../providers/registry.js';
 
 const router = Router();
+const turndown = new TurndownService({ headingStyle: 'atx', bulletListMarker: '-' });
+turndown.remove(['script', 'style']);
 
 // ─── Sanitization ───
 
@@ -44,6 +47,7 @@ interface OutcomeRow {
   id: string;
   title: string;
   description: string | null;
+  descriptionFormat: 'plain' | 'html' | 'markdown';
   effort: string | null;
   status: string;
   priorityScore: string;
@@ -93,6 +97,7 @@ async function buildStructuredData() {
     id: outcomes.id,
     title: outcomes.title,
     description: outcomes.description,
+    descriptionFormat: outcomes.descriptionFormat,
     effort: outcomes.effort,
     status: outcomes.status,
     priorityScore: outcomes.priorityScore,
@@ -173,6 +178,7 @@ async function buildStructuredData() {
       id: o.id,
       title: o.title,
       description: o.description,
+      descriptionFormat: (o.descriptionFormat ?? 'plain') as 'plain' | 'html' | 'markdown',
       effort: o.effort,
       status: o.status,
       priorityScore: o.priorityScore,
@@ -240,6 +246,59 @@ async function buildStructuredData() {
   }
 
   return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name), sortedTagNames };
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function htmlToPlainText(value: string): string {
+  const withBreaks = value
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|li|h1|h2|h3|h4|h5|h6)\s*>/gi, '\n');
+
+  const noTags = withBreaks.replace(/<[^>]+>/g, '');
+  return decodeHtmlEntities(noTags)
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function markdownToPlainText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(^|\n)\s{0,3}#{1,6}\s+/g, '$1')
+    .replace(/(^|\n)\s*>\s?/g, '$1')
+    .replace(/(^|\n)\s*([-+*]|\d+\.)\s+/g, '$1')
+    .replace(/[*_~]+/g, '')
+    .trim();
+}
+
+function descriptionAsPlainText(description: string | null, format: 'plain' | 'html' | 'markdown'): string | null {
+  if (!description) return null;
+  if (format === 'html') return htmlToPlainText(description);
+  if (format === 'markdown') return markdownToPlainText(description);
+  return description;
+}
+
+function descriptionAsMarkdownText(description: string | null, format: 'plain' | 'html' | 'markdown'): string {
+  if (!description) return '';
+
+  // Keep existing injection-safe behavior by escaping markdown control syntax.
+  if (format === 'html') {
+    return escapeMarkdownBlock(turndown.turndown(description));
+  }
+  return escapeMarkdownBlock(description);
 }
 
 /** Convert a 1-based column number to an Excel column letter string (1=A, 26=Z, 27=AA, etc.) */
@@ -478,7 +537,7 @@ router.get('/timeline', async (_req, res) => {
     const row = tlSheet.addRow({
       id: sanitizeCell(o.id),
       title: sanitizeCell(o.title),
-      description: sanitizeCell(o.description),
+      description: sanitizeCell(descriptionAsPlainText(o.description, o.descriptionFormat)),
       milestone: o.milestoneName || '',
       milestoneDate: null,
       effort: o.effort || '',
@@ -665,7 +724,8 @@ router.get('/timeline/markdown', async (_req, res) => {
       md += `**Score:** ${score} | **Effort:** ${escapeMarkdown(o.effort) || '—'} | **Status:** ${escapeMarkdown(o.status)}`;
       if (o.tags) md += ` | **Tags:** ${escapeMarkdown(o.tags)}`;
       md += `\n\n`;
-      if (o.description) md += `${escapeMarkdownBlock(o.description)}\n\n`;
+      const description = descriptionAsMarkdownText(o.description, o.descriptionFormat);
+      if (description) md += `${description}\n\n`;
 
       if (o.motivationSummary) {
         md += `**Motivations:**\n`;

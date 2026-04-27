@@ -3,6 +3,9 @@ import './setup.js';
 import request from 'supertest';
 import { app } from '../app.js';
 import ExcelJS from 'exceljs';
+import { db } from '../db/index.js';
+import { outcomes } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 const USER = 'sarah-chen';
 function api() {
@@ -50,6 +53,12 @@ async function seedTestData() {
   await api().post(`/motivations/${m1.body.id}/link/${o1.body.id}`).set('X-User-Id', USER);
 
   return { ms: ms.body, o1: o1.body, o2: o2.body, m1: m1.body, cdType };
+}
+
+async function setOutcomeDescriptionFormat(outcomeId: string, format: 'plain' | 'html' | 'markdown') {
+  await db.update(outcomes)
+    .set({ descriptionFormat: format, updatedAt: new Date() })
+    .where(eq(outcomes.id, outcomeId));
 }
 
 describe('Export', () => {
@@ -244,6 +253,81 @@ describe('Export', () => {
     expect(md).toContain('Build \\*new\\*');
     expect(md).toContain('\\[click\\]');
     expect(md).toContain('\\## Pwned heading');
+  });
+
+  it('converts html descriptions for markdown export without leaking raw tags', async () => {
+    const milestone = await api().post('/milestones').set('X-User-Id', USER)
+      .send({ name: 'HTML export test', targetDate: '2026-12-31' });
+
+    const outcome = await api().post('/outcomes').set('X-User-Id', USER)
+      .send({
+        title: 'HTML Description Outcome',
+        description: '<p><strong>Bold intro</strong></p><ul><li>First item</li><li>Second item</li></ul>',
+        milestoneId: milestone.body.id,
+      });
+
+    await setOutcomeDescriptionFormat(outcome.body.id, 'html');
+
+    const res = await api().get('/export/timeline/markdown').expect(200);
+    const md = res.text;
+
+    expect(md).toContain('HTML Description Outcome');
+    expect(md).toContain('Bold intro');
+    expect(md).toContain('First item');
+    expect(md).not.toContain('<p>');
+    expect(md).not.toContain('<strong>');
+    expect(md).not.toContain('<li>');
+  });
+
+  it('exports html and markdown descriptions as plain text in Timeline Excel', async () => {
+    const milestone = await api().post('/milestones').set('X-User-Id', USER)
+      .send({ name: 'Description format test', targetDate: '2026-12-31' });
+
+    const htmlOutcome = await api().post('/outcomes').set('X-User-Id', USER)
+      .send({
+        title: 'HTML Source',
+        description: '<h3>Heading</h3><p>Alpha <em>beta</em></p><ul><li>Item A</li></ul>',
+        milestoneId: milestone.body.id,
+      });
+
+    const markdownOutcome = await api().post('/outcomes').set('X-User-Id', USER)
+      .send({
+        title: 'Markdown Source',
+        description: '## Heading\n- bullet\n[link](https://example.com)',
+        milestoneId: milestone.body.id,
+      });
+
+    await setOutcomeDescriptionFormat(htmlOutcome.body.id, 'html');
+    await setOutcomeDescriptionFormat(markdownOutcome.body.id, 'markdown');
+
+    const wb = await exportWorkbook();
+    const sheet = wb.getWorksheet('Timeline')!;
+
+    const headers: string[] = [];
+    sheet.getRow(1).eachCell((cell, col) => { headers[col] = String(cell.value); });
+    const titleCol = headers.indexOf('Outcome');
+    const descriptionCol = headers.indexOf('Description');
+
+    let htmlCellText = '';
+    let markdownCellText = '';
+
+    sheet.eachRow((row, rowNum) => {
+      if (rowNum === 1) return;
+      const title = String(row.getCell(titleCol).value || '');
+      if (title === 'HTML Source') htmlCellText = String(row.getCell(descriptionCol).value || '');
+      if (title === 'Markdown Source') markdownCellText = String(row.getCell(descriptionCol).value || '');
+    });
+
+    expect(htmlCellText).toContain('Heading');
+    expect(htmlCellText).toContain('Item A');
+    expect(htmlCellText).not.toContain('<h3>');
+    expect(htmlCellText).not.toContain('<li>');
+
+    expect(markdownCellText).toContain('Heading');
+    expect(markdownCellText).toContain('bullet');
+    expect(markdownCellText).toContain('link');
+    expect(markdownCellText).not.toContain('## Heading');
+    expect(markdownCellText).not.toContain('[link](');
   });
 });
 
