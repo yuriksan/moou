@@ -40,6 +40,7 @@ export async function refreshLink(linkId: string, token: string): Promise<boolea
 
     await db.update(externalLinks).set({
       ...(resolvedEntityType ? { entityType: resolvedEntityType } : {}),
+      ...(result.item.htmlUrl ? { url: result.item.htmlUrl } : {}),
       cachedDetails: {
         ...result.item,
         childProgress,

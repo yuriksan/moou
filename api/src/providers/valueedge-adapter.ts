@@ -90,7 +90,7 @@ function mapItem(entityType: string, data: any): BackendItem {
     assignee: data.owner
       ? { login: data.owner.full_name || data.owner.name || data.owner.id }
       : undefined,
-    htmlUrl: '',
+    htmlUrl: itemUrl(resolvedType, String(data.id)),
   };
 }
 
