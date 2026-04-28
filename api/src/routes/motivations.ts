@@ -3,7 +3,7 @@ import { validateMotivationInput } from '../lib/input-validation.js';
 import { db } from '../db/index.js';
 import {
   motivations, motivationTypes, motivationTags, tags,
-  outcomeMotivations, outcomes, milestones,
+  outcomeMotivations, outcomes, milestones, users,
 } from '../db/schema.js';
 import { eq, sql, and, inArray, desc, ilike } from 'drizzle-orm';
 import { validateAttributes } from '../lib/validate.js';
@@ -124,6 +124,7 @@ router.get('/', async (req, res) => {
     attributes: motivations.attributes,
     score: motivations.score,
     createdBy: motivations.createdBy,
+    creatorName: sql<string | null>`(SELECT u.name FROM users u WHERE u.id = motivations.created_by)`,
     createdAt: motivations.createdAt,
     updatedAt: motivations.updatedAt,
     linkedOutcomeCount: sql<number>`cast((

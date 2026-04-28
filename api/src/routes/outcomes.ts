@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import {
   outcomes, outcomeTags, tags, outcomeMotivations, motivations, motivationTypes,
-  externalLinks, comments,
+  externalLinks, comments, users,
 } from '../db/schema.js';
 import { eq, sql, and, inArray, desc, asc } from 'drizzle-orm';
 import { recordCreate, recordUpdate, recordHistory } from '../lib/history.js';
@@ -126,6 +126,7 @@ router.get('/', async (req, res) => {
     primaryLinkId: outcomes.primaryLinkId,
     primaryLinkUrl: sql<string | null>`(SELECT url FROM external_links el WHERE el.id = outcomes.primary_link_id)`,
     createdBy: outcomes.createdBy,
+    creatorName: sql<string | null>`(SELECT u.name FROM users u WHERE u.id = outcomes.created_by)`,
     createdAt: outcomes.createdAt,
     updatedAt: outcomes.updatedAt,
     motivationCount: sql<number>`cast((

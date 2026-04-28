@@ -239,7 +239,7 @@ function outcomeMismatchLevel(o: any): MismatchLevel | null {
           </span>
           <span class="col-motivations font-mono">{{ o.motivationCount || 0 }}</span>
           <span :class="['col-status status-badge', `status-${o.status}`]">{{ o.status }}</span>
-          <span class="col-creator">{{ stripProvider(o.createdBy) }}</span>
+          <span class="col-creator">{{ o.creatorName || stripProvider(o.createdBy) }}</span>
         </div>
         <div v-if="filteredOutcomes.length === 0" class="empty">No outcomes match filters</div>
       </div>

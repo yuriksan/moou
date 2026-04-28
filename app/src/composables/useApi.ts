@@ -93,6 +93,11 @@ export class ApiError extends Error {
   }
 }
 
+function buildUrlWithParams(path: string, params?: Record<string, string>): string {
+  if (!params || Object.keys(params).length === 0) return `${BASE}${path}`;
+  return `${BASE}${path}?${new URLSearchParams(params).toString()}`;
+}
+
 // ─── Typed API methods ───
 
 export const api = {
@@ -209,9 +214,9 @@ export const api = {
     request<{ title: { local: string | null; remote: string | null }; description: { local: string | null; remote: string | null }; providerLabel: string }>(`/outcomes/${outcomeId}/sync-preview`),
 
   // Export/Import
-  exportTimelineUrl: () => `${BASE}/export/timeline`,
-  exportMarkdownUrl: () => `${BASE}/export/timeline/markdown`,
-  exportPptxUrl: () => `${BASE}/export/timeline/pptx`,
+  exportTimelineUrl: (params?: Record<string, string>) => buildUrlWithParams('/export/timeline', params),
+  exportMarkdownUrl: (params?: Record<string, string>) => buildUrlWithParams('/export/timeline/markdown', params),
+  exportPptxUrl: (params?: Record<string, string>) => buildUrlWithParams('/export/timeline/pptx', params),
   importTimelineDiff: async (file: File) => {
     const buffer = await file.arrayBuffer();
     const res = await fetch(`${BASE}/import/timeline/diff`, {

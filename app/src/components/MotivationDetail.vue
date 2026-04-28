@@ -293,7 +293,7 @@ function formatAttrValue(value: unknown): string {
           class="history-item"
         >
           <span class="history-dot"></span>
-          <span class="history-text"><strong>{{ row.entry.changedBy }}</strong> {{ row.text }}</span>
+          <span class="history-text"><strong>{{ row.entry.changedByName || row.entry.changedBy }}</strong> {{ row.text }}</span>
           <span class="history-time font-mono">{{ timeAgo(row.entry.changedAt) }}</span>
         </div>
         <div v-if="displayHistory.length === 0" class="empty">No changes yet</div>

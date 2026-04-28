@@ -618,7 +618,7 @@ function timeAgo(dateStr: string): string {
         <h3 class="section-title">Comments ({{ comments.length }})</h3>
         <div v-for="c in comments" :key="c.id" class="comment">
           <div class="comment-meta">
-            <span class="comment-author">{{ c.createdBy }}</span>
+            <span class="comment-author">{{ c.creatorName || c.createdBy }}</span>
             <span class="comment-time font-mono">{{ timeAgo(c.createdAt) }}</span>
           </div>
           <div class="comment-body">{{ c.body }}</div>
@@ -644,7 +644,7 @@ function timeAgo(dateStr: string): string {
         >
           <span class="history-dot"></span>
           <span class="history-text">
-            <strong>{{ row.entry.changedBy }}</strong> {{ row.text }}
+            <strong>{{ row.entry.changedByName || row.entry.changedBy }}</strong> {{ row.text }}
           </span>
           <span class="history-time font-mono">{{ timeAgo(row.entry.changedAt) }}</span>
         </div>

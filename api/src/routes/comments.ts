@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { comments, outcomes } from '../db/schema.js';
+import { comments, outcomes, users } from '../db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
 
 const router = Router();
@@ -34,7 +34,14 @@ router.get('/:outcomeId/comments', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 100);
   const offset = Number(req.query.offset) || 0;
 
-  const result = await db.select().from(comments)
+  const result = await db.select({
+    id: comments.id,
+    outcomeId: comments.outcomeId,
+    body: comments.body,
+    createdBy: comments.createdBy,
+    creatorName: sql<string | null>`(SELECT u.name FROM users u WHERE u.id = comments.created_by)`,
+    createdAt: comments.createdAt,
+  }).from(comments)
     .where(eq(comments.outcomeId, outcomeId))
     .orderBy(desc(comments.createdAt))
     .limit(limit).offset(offset);

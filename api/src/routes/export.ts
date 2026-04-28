@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const PptxGenJS = require('pptxgenjs');
 import { db } from '../db/index.js';
 import { outcomes, motivations, motivationTypes, outcomeMotivations, milestones, outcomeTags, motivationTags, tags, externalLinks } from '../db/schema.js';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { VALID_OUTCOME_STATUSES, VALID_EFFORT_SIZES, VALID_MILESTONE_STATUSES, VALID_MILESTONE_TYPES, safeSheetName } from '../lib/input-validation.js';
 import { getAdapter } from '../providers/registry.js';
 
@@ -86,9 +86,63 @@ interface MilestoneRow {
   completedCount: number;
 }
 
+interface ExportFilters {
+  tags: string[];
+}
+
+async function findOutcomeIdsMatchingTags(tagNames: string[]): Promise<string[] | null> {
+  if (tagNames.length === 0) return null;
+
+  const normalizedTagNames = tagNames.map(t => t.toLowerCase());
+  const tagRows = await db.select({ id: tags.id }).from(tags)
+    .where(inArray(sql`lower(${tags.name})`, normalizedTagNames));
+  const tagIdList = tagRows.map(t => t.id);
+
+  if (tagIdList.length === 0) return [];
+
+  const tagIdSqlValues = sql.join(tagIdList.map(id => sql`${id}::uuid`), sql`, `);
+  const matchingOutcomes = await db.execute<{ outcome_id: string }>(sql`
+    SELECT o.id AS outcome_id
+    FROM outcomes o
+    WHERE (
+      SELECT count(DISTINCT req.tag_id)
+      FROM unnest(ARRAY[${tagIdSqlValues}]) AS req(tag_id)
+      WHERE EXISTS (
+        SELECT 1 FROM outcome_tags ot WHERE ot.outcome_id = o.id AND ot.tag_id = req.tag_id
+      ) OR EXISTS (
+        SELECT 1 FROM outcome_motivations om
+        JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
+        WHERE om.outcome_id = o.id AND mt.tag_id = req.tag_id
+      )
+    ) = ${tagIdList.length}
+  `);
+
+  return matchingOutcomes.rows.map((r: { outcome_id: string }) => r.outcome_id);
+}
+
+function parseExportFilters(rawTags: unknown): ExportFilters {
+  const tagList = typeof rawTags === 'string'
+    ? rawTags.split(',').map(tag => tag.trim()).filter(Boolean)
+    : [];
+  return { tags: tagList };
+}
+
 // ─── Build structured export data ───
 
-async function buildStructuredData() {
+async function buildStructuredData(filters: ExportFilters = { tags: [] }) {
+  const filteredOutcomeIds = await findOutcomeIdsMatchingTags(filters.tags);
+  if (filteredOutcomeIds && filteredOutcomeIds.length === 0) {
+    const allTypes = await db.select().from(motivationTypes);
+    return {
+      outcomeRows: [] as OutcomeRow[],
+      milestoneRows: [] as MilestoneRow[],
+      motivationsByType: new Map(allTypes.map(type => [type.name, [] as MotivationRow[]])),
+      allTypes,
+      milestoneNames: [] as string[],
+      sortedTagNames: [] as string[],
+    };
+  }
+
   // Fetch all milestones
   const allMilestones = await db.select().from(milestones).orderBy(sql`${milestones.targetDate} ASC`);
 
@@ -108,6 +162,7 @@ async function buildStructuredData() {
   }).from(outcomes)
     .leftJoin(milestones, eq(outcomes.milestoneId, milestones.id))
     .leftJoin(externalLinks, eq(outcomes.primaryLinkId, externalLinks.id))
+    .where(filteredOutcomeIds ? inArray(outcomes.id, filteredOutcomeIds) : undefined)
     .orderBy(sql`${milestones.targetDate} NULLS LAST`, sql`${outcomes.priorityScore} DESC`);
 
   // Fetch all motivation links with details
@@ -122,7 +177,8 @@ async function buildStructuredData() {
     motivationAttributes: motivations.attributes,
   }).from(outcomeMotivations)
     .innerJoin(motivations, eq(outcomeMotivations.motivationId, motivations.id))
-    .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id));
+    .innerJoin(motivationTypes, eq(motivations.typeId, motivationTypes.id))
+    .where(filteredOutcomeIds ? inArray(outcomeMotivations.outcomeId, filteredOutcomeIds) : undefined);
 
   // Fetch motivation type schemas
   const allTypes = await db.select().from(motivationTypes);
@@ -139,6 +195,7 @@ async function buildStructuredData() {
         JOIN motivation_tags mt ON mt.motivation_id = om.motivation_id
         JOIN tags t ON t.id = mt.tag_id
     ) t ON t.outcome_id = o.id
+      ${filteredOutcomeIds ? sql`WHERE o.id IN (${sql.join(filteredOutcomeIds.map(id => sql`${id}::uuid`), sql`, `)})` : sql``}
   `).then(r => r.rows.map(row => ({ outcomeId: row.outcome_id, tagName: row.tag_name })));
 
   const outcomeTagMap = new Map<string, Set<string>>();
@@ -219,7 +276,7 @@ async function buildStructuredData() {
       avgPriorityScore: Math.round(avg),
       completedCount: msOutcomes.filter(o => o.status === 'completed').length,
     };
-  });
+  }).filter(ms => ms.outcomeCount > 0);
 
   // Build motivation rows grouped by type
   const motivationsByType = new Map<string, MotivationRow[]>();
@@ -245,7 +302,14 @@ async function buildStructuredData() {
     }
   }
 
-  return { outcomeRows, milestoneRows, motivationsByType, allTypes, milestoneNames: allMilestones.map(m => m.name), sortedTagNames };
+  return {
+    outcomeRows,
+    milestoneRows,
+    motivationsByType,
+    allTypes,
+    milestoneNames: milestoneRows.map(m => m.name),
+    sortedTagNames,
+  };
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -436,8 +500,9 @@ function jsonSchemaToValidation(propSchema: Record<string, unknown>, propName: s
 
 // ─── GET /export/timeline ───
 
-router.get('/timeline', async (_req, res) => {
-  const { outcomeRows, milestoneRows, motivationsByType, allTypes, sortedTagNames } = await buildStructuredData();
+router.get('/timeline', async (req, res) => {
+  const filters = parseExportFilters(req.query.tags);
+  const { outcomeRows, milestoneRows, motivationsByType, allTypes, sortedTagNames } = await buildStructuredData(filters);
   const adapter = getAdapter();
   const primaryLinkHeader = adapter?.label ?? 'Primary Issue';
 
@@ -702,8 +767,9 @@ router.get('/timeline', async (_req, res) => {
 
 // ─── GET /export/timeline/markdown ───
 
-router.get('/timeline/markdown', async (_req, res) => {
-  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData();
+router.get('/timeline/markdown', async (req, res) => {
+  const filters = parseExportFilters(req.query.tags);
+  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData(filters);
 
   // Group outcomes by milestone for markdown
   const groups = new Map<string, OutcomeRow[]>();
@@ -964,8 +1030,9 @@ export function computeExecMetrics(
   };
 }
 
-router.get('/timeline/pptx', async (_req, res) => {
-  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData();
+router.get('/timeline/pptx', async (req, res) => {
+  const filters = parseExportFilters(req.query.tags);
+  const { outcomeRows, milestoneRows, motivationsByType } = await buildStructuredData(filters);
 
   const pres = new PptxGenJS();
   pres.author = 'moou';

@@ -32,6 +32,11 @@ const outcomeTags = computed(() =>
   tags.value.filter((t: any) => (t.usageOutcomes ?? 0) > 0)
 );
 
+const exportParams = computed<Record<string, string> | undefined>(() => {
+  if (!tagFilter.value.length) return undefined;
+  return { tags: tagFilter.value.join(',') };
+});
+
 function toggleTag(name: string) {
   // Reassign rather than mutate so the watcher fires (Vue 3 ref watchers are
   // shallow by default — push/splice would be invisible to the watcher).
@@ -272,15 +277,15 @@ async function moveOutcome(outcomeId: string, toMilestoneId: string | null) {
 
 // ─── Export/Import ───
 function exportExcel() {
-  window.open(api.exportTimelineUrl(), '_blank');
+  window.open(api.exportTimelineUrl(exportParams.value), '_blank');
 }
 
 function exportMarkdown() {
-  window.open(api.exportMarkdownUrl(), '_blank');
+  window.open(api.exportMarkdownUrl(exportParams.value), '_blank');
 }
 
 function exportPptx() {
-  window.open(api.exportPptxUrl(), '_blank');
+  window.open(api.exportPptxUrl(exportParams.value), '_blank');
 }
 
 function triggerImport() {

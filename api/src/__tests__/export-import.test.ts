@@ -75,6 +75,23 @@ describe('Export', () => {
     expect(sheetNames).not.toContain('Backlog');
   });
 
+  it('respects tag filters during export', async () => {
+    const { o1 } = await seedTestData();
+
+    const exportTag = await api().post('/tags').set('X-User-Id', USER)
+      .send({ name: 'export-only', emoji: '📦', colour: '#336699' });
+
+    await api().put(`/outcomes/${o1.id}`).set('X-User-Id', USER)
+      .send({ tagIds: [exportTag.body.id] });
+
+    const res = await api().get('/export/timeline/markdown?tags=export-only').expect(200);
+    const md = res.text;
+
+    expect(md).toContain('Export Outcome 1');
+    expect(md).not.toContain('Backlog Outcome');
+    expect(md).toContain('Q2 Export Test');
+  });
+
   it('Milestones sheet has milestone data with summary columns', async () => {
     await seedTestData();
     const wb = await exportWorkbook();

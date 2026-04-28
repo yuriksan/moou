@@ -217,7 +217,7 @@ function pillClass(typeName: string): string {
             {{ Number(m.score).toLocaleString('en', { maximumFractionDigits: 0 }) }}
           </span>
           <span class="col-outcomes font-mono">{{ m.linkedOutcomeCount }}</span>
-          <span class="col-creator">{{ stripProvider(m.createdBy) }}</span>
+          <span class="col-creator">{{ m.creatorName || stripProvider(m.createdBy) }}</span>
         </div>
         <div v-if="sortedMotivations.length === 0" class="empty">No motivations match filters</div>
       </div>
